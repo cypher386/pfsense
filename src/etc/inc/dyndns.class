@@ -3,7 +3,7 @@
  * dyndns.class
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -46,8 +46,8 @@
 	 *    - DNS-O-Matic (dnsomatic.com)
 	 *    - Custom DDNS (any URL)
 	 *    - Custom DDNS IPv6 (any URL)
-	 *    - CloudFlare (www.cloudflare.com)
-	 *    - CloudFlare IPv6 (www.cloudflare.com)
+	 *    - Cloudflare (www.cloudflare.com)
+	 *    - Cloudflare IPv6 (www.cloudflare.com)
 	 *    - Eurodns (eurodns.com)
 	 *    - GratisDNS (gratisdns.dk)
 	 *    - City Network (citynetwork.se)
@@ -60,6 +60,11 @@
 	 *    - All-Inkl (all-inkl.com)
 	 *    - DuiaDNS (www.duiadns.net)
 	 *    - DuiaDNS IPv6 (www.duiadns.net)
+	 *    - Hover (www.hover.com)
+	 *    - DreamHost DNS (www.dreamhost.com)
+	 *    - ClouDNS (www.cloudns.net)
+	 *    - GoDaddy (www.godaddy.com)
+	 *    - Azure DNS (azure.microsoft.com)
 	 * +----------------------------------------------------+
 	 *  Requirements:
 	 *    - PHP version 4.0.2 or higher with the CURL Library and the PCRE Library
@@ -98,8 +103,8 @@
 	 *  SelfHost        - Last Tested: 26 December 2011
 	 *  Amazon Route 53 - Last Tested: 04 February 2017
 	 *  DNS-O-Matic     - Last Tested: 9 September 2010
-	 *  CloudFlare      - Last Tested: 05 September 2016
-	 *  CloudFlare IPv6 - Last Tested: 17 July 2016
+	 *  Cloudflare      - Last Tested: 05 September 2016
+	 *  Cloudflare IPv6 - Last Tested: 17 July 2016
 	 *  Eurodns         - Last Tested: 27 June 2013
 	 *  GratisDNS       - Last Tested: 15 August 2012
 	 *  OVH DynHOST     - Last Tested: NEVER
@@ -113,6 +118,14 @@
 	 *  All-Inkl        - Last Tested: 12 November 2016
 	 *  DuiaDNS         - Last Tested: 25 November 2016
 	 *  DuiaDNS IPv6    - Last Tested: 25 November 2016
+	 *  Hover           - Last Tested: 15 February 2017
+	 *  DreamHost       - Last Tested: 30 April 2017
+	 *  DreamHost IPv6  - Not Yet Tested
+	 *  ClouDNS         - Last Tested: 22 August 2017
+	 *  GoDaddy         - Last Tested: 22 November 2017
+	 *  GoDaddy IPv6    - Last Tested: 22 November 2017
+	 *  DigitalOcean    - Not Yet Tested
+	 *  Azure DNS       - Last Tested: 08 March 2018
 	 * +====================================================+
 	 *
 	 * @author 	E.Kristensen
@@ -160,6 +173,7 @@
 		var $_dnsDummyUpdateDone;
 		var $_forceUpdateNeeded;
 		var $_useIPv6;
+		var $_existingRecords;
 
 		/*
 		 * Public Constructor Function (added 12 July 05) [beta]
@@ -210,16 +224,42 @@
 			case "cloudflare-v6":
 			case "cloudflare":
 			case "gratisdns":
+			case "hover":
 				if (!$dnsUser) $this->_error(3);
 				if (!$dnsPass) $this->_error(4);
 				if (!$dnsHost) $this->_error(5);
 				if (!$dnsDomain) $this->_error(5);
 				break;
+			case 'route53-v6':
 			case 'route53':
 				if (!$dnsZoneID) $this->_error(8);
 				if (!$dnsTTL) $this->_error(9);
 				break;
+			case 'cloudns':
+			case "godaddy":
+			case "godaddy-v6":
+				if (!$dnsUser) $this->_error(3);
+				if (!$dnsPass) $this->_error(4);
+				if (!$dnsHost) $this->_error(5);
+				if (!$dnsDomain) $this->_error(5);
+				if (!$dnsTTL) $this->_error(9);
+				break;
+			case 'digitalocean':
+				if (!$dnsPass) $this->_error(4);
+				if (!$dnsHost) $this->_error(5);
+				if (!$dnsDomain) $this->_error(5);
+				if (!$dnsTTL) $this->_error(9);
+				break;
+			case 'azure':
+			case 'azurev6':
+				if (!$dnsUser) $this->_error(3);
+				if (!$dnsPass) $this->_error(4);
+				if (!$dnsHost) $this->_error(5);
+				if (!$dnsZoneID) $this->_error(8);
+				if (!$dnsTTL) $this->_error(9);
+				break;
 			case 'custom':
+			case 'custom-v6':
 				if (!$dnsUpdateURL) $this->_error(7);
 				break;
 			default:
@@ -232,9 +272,13 @@
 				case 'he-net-v6':
 				case 'custom-v6':
 				case 'spdyn-v6':
+				case 'route53-v6':
 				case 'duiadns-v6':
 				case 'freedns-v6':
 				case 'cloudflare-v6':
+				case 'dreamhost-v6':
+				case 'godaddy-v6':
+				case 'azurev6':
 					$this->_useIPv6 = true;
 					break;
 				default:
@@ -307,6 +351,7 @@
 					case 'selfhost':
 					case 'he-net-tunnelbroker':
 					case 'route53':
+					case 'route53-v6':
 					case 'cloudflare':
 					case 'cloudflare-v6':
 					case 'eurodns':
@@ -319,6 +364,13 @@
 					case 'spdyn':
 					case 'spdyn-v6':
 					case 'all-inkl':
+					case 'cloudns':
+					case 'hover':
+					case 'digitalocean':
+					case 'godaddy':
+					case 'godaddy-v6':
+					case  'azure':
+					case  'azurev6':
 						$this->_update();
 						if ($this->_dnsDummyUpdateDone == true) {
 							// If a dummy update was needed, then sleep a while and do the update again to put the proper address back.
@@ -326,6 +378,17 @@
 							// If the address has not changed recently, or the user did "Force Update", then the code does
 							// a dummy address change for providers like this.
 							sleep(10);
+							$this->_update();
+						}
+						break;
+					case 'dreamhost':
+					case 'dreamhost-v6':
+						$this->_lookup_current();
+						if (isset($this->status)) {
+							return;
+						}
+						foreach ($this->_existingRecords as $record) {
+							$this->_remove($record['existing_val']);
 							$this->_update();
 						}
 						break;
@@ -542,8 +605,8 @@
 					break;
 				case 'freedns':
 				case 'freedns-v6':
-					$needIP = FALSE;
-					curl_setopt($ch, CURLOPT_URL, 'https://freedns.afraid.org/dynamic/update.php?' . $this->_dnsPass);
+					$needIP = TRUE;
+					curl_setopt($ch, CURLOPT_URL, 'https://freedns.afraid.org/dynamic/update.php?' . $this->_dnsPass . '&address=' . $this->_dnsIP);
 					break;
 				case 'dnsexit':
 					$needsIP = TRUE;
@@ -551,8 +614,9 @@
 					break;
 				case 'loopia':
 					$needsIP = TRUE;
+					if (isset($this->_dnsWildcard) && $this->_dnsWildcard != "OFF") $this->_dnsWildcard = "ON";
 					curl_setopt($ch, CURLOPT_USERPWD, $this->_dnsUser.':'.$this->_dnsPass);
-					curl_setopt($ch, CURLOPT_URL, 'https://dns.loopia.se/XDynDNSServer/XDynDNS.php?hostname='.$this->_dnsHost.'&myip='.$this->_dnsIP);
+					curl_setopt($ch, CURLOPT_URL, 'https://dns.loopia.se/XDynDNSServer/XDynDNS.php?hostname='.$this->_dnsHost.'&myip='.$this->_dnsIP.'&wildcard='.$this->_dnsWildcard);
 					break;
 				case 'opendns':
 					$needsIP = FALSE;
@@ -647,16 +711,32 @@
 					}
 					curl_setopt($ch, CURLOPT_URL, $server .$port . '?system=dyndns&hostname=' . $this->_dnsHost . '&myip=' . $this->_dnsIP . '&wildcard='.$this->_dnsWildcard . '&mx=' . $this->_dnsMX . '&backmx=NO');
 					break;
-				case 'route53':		
+				case 'route53':
 					require_once("r53.class");
 					$r53 = new Route53($this->_dnsUser, $this->_dnsPass);
-					list($r53_regionId, $r53_zoneId) = split('/', $this->_dnsZoneID);
-					$apiurl = $r53->getApiUrl($r53_zoneId);
+					$apiurl = $r53->getApiUrl($this->_dnsZoneID);
 					$xmlreq = $r53->getRequestBody($this->_dnsHost, $this->_dnsIP, $this->_dnsTTL);
-					$httphead = $r53->getHttpPostHeaders($r53_zoneId, $r53_regionId, hash("sha256",$xmlreq));
+					$httphead = $r53->getHttpPostHeaders($this->_dnsZoneID, "us-east-1", hash("sha256",$xmlreq));
 					curl_setopt($ch, CURLOPT_HTTPHEADER, $httphead);
 					if($this->_dnsVerboseLog){
-						log_error(sprintf("Sending reuquest to: %s", $apiurl));
+						log_error(sprintf("Sending request to: %s", $apiurl));
+						foreach($httphead as $hv){
+							log_error(sprintf("Header: %s", $hv));
+						}
+						log_error(sprintf("XMLPOST: %s", $xmlreq));
+					}
+					curl_setopt($ch, CURLOPT_URL, $apiurl);
+					curl_setopt($ch, CURLOPT_POSTFIELDS, $xmlreq);
+					break;
+				case 'route53-v6':
+					require_once("r53.class");
+					$r53 = new Route53($this->_dnsUser, $this->_dnsPass);
+					$apiurl = $r53->getApiUrl($this->_dnsZoneID);
+					$xmlreq = $r53->getRequestBodyV6($this->_dnsHost, $this->_dnsIP, $this->_dnsTTL);
+					$httphead = $r53->getHttpPostHeaders($this->_dnsZoneID, "us-east-1", hash("sha256",$xmlreq));
+					curl_setopt($ch, CURLOPT_HTTPHEADER, $httphead);
+					if($this->_dnsVerboseLog){
+						log_error(sprintf("Sending request to: %s", $apiurl));
 						foreach($httphead as $hv){
 							log_error(sprintf("Header: %s", $hv));
 						}
@@ -677,7 +757,6 @@
 						} else {
 							curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
 						}
-						curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_ANY);
 						curl_setopt($ch, CURLOPT_USERPWD, "{$this->_dnsUser}:{$this->_dnsPass}");
 					}
 					$server = str_replace("%IP%", $this->_dnsIP, $this->_dnsUpdateURL);
@@ -770,17 +849,36 @@
 					curl_setopt($ch, CURLOPT_URL, $server .$port . '?hostname=' . $this->_dnsHost . '&myip=' . $this->_dnsIP);
 					break;
 				case 'dnsimple':
-					/* Uses DNSimple's REST API
-					   Requires username and Account API token passed in header
-					   Piggybacks on Route 53's ZoneID field for DNSimple record ID
+					/* Uses DNSimple's v2 REST API
+					   Requires the Account ID as the username (found in the URL when pull up the domain)
+					   And an API Token for the password (generated in the User Settings -> API tokens area of the website)
+					   Piggybacks on Route 53's ZoneID field for the DNSimple record ID to update
+					   The DNS record MUST exist before it can update since it performs a PATCH operation
+					   Data sent as JSON over HTTPS */
+					$needsIP = TRUE;
+					$server = 'https://api.dnsimple.com/v2/';
+					curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PATCH");
+					curl_setopt($ch, CURLOPT_HTTPHEADER, array('Accept: application/json', 'Content-Type: application/json', 'Authorization: Bearer ' . $this->_dnsPass));
+					curl_setopt($ch, CURLOPT_URL, $server . $this->_dnsUser . '/zones/' . $this->_dnsHost . '/records/' . $this->_dnsZoneID);
+					curl_setopt($ch, CURLOPT_POSTFIELDS, '{"content":"' . $this->_dnsIP . '","ttl":"' . $this->_dnsTTL . '"}');
+					break;
+				case 'godaddy':
+				case 'godaddy-v6':
+					/* Uses GoDaddy's REST API
+					   Requires username and Account API sso-key passed in header
 					   Data sent as JSON */
 					$needsIP = TRUE;
-					$server = 'https://api.dnsimple.com/v1/domains/';
-					$token = $this->_dnsUser . ':' . $this->_dnsPass;
-					$jsondata = '{"record":{"content":"' . $this->_dnsIP . '","ttl":"' . $this->_dnsTTL . '"}}';
+					$server = 'https://api.godaddy.com/v1/domains/';
+					$recordType = $this->_useIPv6 ? "AAAA" : "A";
+					$url = $server  . $this->_dnsDomain . '/records/' . $recordType . '/' . $this->_dnsHost;
+					$jsondata = '[{"data":"' . $this->_dnsIP . '","ttl":' . $this->_dnsTTL . '}]';
 					curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PUT");
-					curl_setopt($ch, CURLOPT_HTTPHEADER, array('Accept: application/json', 'Content-Type: application/json', 'X-DNSimple-Token: ' . $token));
-					curl_setopt($ch, CURLOPT_URL, $server . $this->_dnsHost . '/records/' . $this->_dnsZoneID);
+					curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+						'Accept: application/json',
+						'Content-Type: application/json',
+						'Authorization: sso-key ' . $this->_dnsUser . ':' . $this->_dnsPass
+					));
+					curl_setopt($ch, CURLOPT_URL, $url);
 					curl_setopt($ch, CURLOPT_POSTFIELDS, $jsondata);
 					break;
 				case 'googledomains':
@@ -820,8 +918,206 @@
 					curl_setopt($ch, CURLOPT_USERPWD, $this->_dnsUser.':'.$this->_dnsPass);
 					curl_setopt($ch, CURLOPT_URL, $server . 'myip=' . $this->_dnsIP);
 					break;
-				default:
+				case 'hover':
+					$needsIP = FALSE;
+					$port = "";
+					curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+					curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 1);
+
+					//step 1: login to API
+					$post_data['username'] = $this->_dnsUser;
+					$post_data['password'] = $this->_dnsPass;
+					curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
+					curl_setopt($ch, CURLOPT_URL, "https://www.hover.com/api/login");
+					curl_setopt($ch, CURLOPT_HEADER, 1); //return the full headers to extract the cookies
+					$output = curl_exec($ch);
+
+					//extract the cookies
+					preg_match_all("/^Set-cookie: (.*?);/ism", $output, $cookies);
+					if( count($cookies[1]) > 0 ){
+						$cookie_data = implode("; ",$cookies[1]);
+					}
+
+					//step 2: find the id of the A record
+					$post_data = null;
+					curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
+					curl_setopt($ch, CURLOPT_COOKIE, $cookie_data);
+					curl_setopt($ch, CURLOPT_HEADER, 0);
+					curl_setopt($ch, CURLOPT_URL, "https://www.hover.com/api/dns");
+					curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'GET');
+
+					$output = curl_exec($ch);
+					preg_match("/^{\"succeeded\":true.*?domain_name\":\"{$this->_dnsDomain}.*?entries.*?{\"id\":\"([^\"]*?)\",\"name\":\"{$this->_dnsHost}\".*?\$/", $output, $hostID);
+					$hostID = $hostID[1];
+					preg_match("/^{\"succeeded\":true.*?domain_name\":\"{$this->_dnsDomain}.*?entries.*?{[^\}]*?\"name\":\"{$this->_dnsHost}\".*?content\":\"([^\"]*?)\".*?\$/", $output, $hostIP);
+					$hostIP = $hostIP[1];
+
+					//step 3: update the IP
+					if ($hostID) {
+						curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+						curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 1);
+						curl_setopt($ch, CURLOPT_COOKIE, $cookie_data);
+						$post_data['content'] = $this->_dnsIP;
+						curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
+						curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
+						curl_setopt($ch, CURLOPT_URL, "https://www.hover.com/api/dns/{$hostID}");
+						log_error("HostID:{$hostID}, OldIP:{$hostIP}");
+					}
 					break;
+				case 'dreamhost':
+				case 'dreamhost-v6':
+					$needsIP = TRUE;
+					$isv6 = ($this->_dnsService === 'dreamhost-v6');
+					$server = 'https://api.dreamhost.com/';
+					$post_data['key'] = $this->_dnsPass;
+					$post_data['unique_id'] = uniqid($this->_dnsHost);
+					$post_data['cmd'] = 'dns-add_record';
+					$post_data['format'] = 'json';
+					$post_data['value'] = $this->_dnsIP;
+					$post_data['record'] = $this->_dnsHost;
+					$post_data['type'] = $isv6 ? 'AAAA' : 'A';
+					$post_data['comment'] = "Updated by pfSense:$this->_dnsUser on ".date('c');
+					$port = "";
+					if ($this->_dnsServer) {
+						$server = $this->_dnsServer;
+					}
+					if ($this->_dnsPort) {
+						$port = ":" . $this->_dnsPort;
+					}
+					curl_setopt($ch, CURLOPT_URL, $server . $port);
+					curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
+					break;
+				case 'digitalocean':
+					// Get record ID
+					$server = 'https://api.digitalocean.com/v2/domains/';
+					$url = $server . $this->_dnsDomain . '/records';
+					curl_setopt($ch, CURLOPT_HTTPHEADER, array("Authorization: Bearer {$this->_dnsPass}"));
+					curl_setopt($ch, CURLOPT_URL, $url);
+					$output = json_decode(curl_exec($ch));
+					if (!is_array($output->domain_records)) {
+						$output->domain_records = array();
+					}
+					foreach($output->domain_records as $dnsRecord) {
+						if ($this->_dnsHost == $dnsRecord->name) {
+							$recordID = $dnsRecord->id;
+							break;
+						}
+					}
+
+					// Create/update record
+					if ($recordID == null) {
+						$url = $server . $this->_dnsDomain . '/records';
+					} else {
+						$url = $server . $this->_dnsDomain . '/records/' . $recordID;
+						curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PUT");
+					}
+					$post_data['type'] = 'A';
+					$post_data['ttl'] = $this->_dnsTTL;
+					$post_data['name'] = $this->_dnsHost;
+					$post_data['data'] = $this->_dnsIP;
+					curl_setopt($ch, CURLOPT_URL, $url);
+					curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
+					break;
+				case 'cloudns':
+					/* Uses ClouDNS REST API
+					   Requires auth-id or sub-auth-id or sub-auth-user */
+					// Step 1: Find the Record ID
+					$url = 'https://api.cloudns.net/dns/records.json';
+					$post_data['auth-id'] = $this->_dnsUser;
+					$post_data['auth-password'] = $this->_dnsPass;
+					$post_data['domain-name'] = $this->_dnsDomain;
+					$post_data['host'] = $this->_dnsHost;
+					$post_data['type'] = 'a';
+					curl_setopt($ch, CURLOPT_URL, $url);
+					curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
+					$output = json_decode(curl_exec($ch));
+					$recordID = key(get_object_vars($output));
+
+					// Step 2: Set the record
+					$needsIP = TRUE;
+					$url = 'https://api.cloudns.net/dns/mod-record.json';
+					$post_data = array();
+					$post_data['auth-id'] = $this->_dnsUser;
+					$post_data['auth-password'] = $this->_dnsPass;
+					$post_data['domain-name'] = $this->_dnsDomain;
+					$post_data['record-id'] = $recordID;
+					$post_data['host'] = $this->_dnsHost;
+					$post_data['record'] = $this->_dnsIP;
+					$post_data['ttl'] = $this->_dnsTTL;
+					curl_setopt($ch, CURLOPT_URL, $url);
+					curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
+					break;
+			case 'azurev6':
+			case 'azure':
+				$hostname = "{$this->_dnsHost}";
+				$resourceid = trim($this->_dnsZoneID);
+				$app_id = $this->_dnsUser;
+				$client_secret = $this->_dnsPass;
+				$newip = $this->_dnsIP;
+				$newttl = $this->_dnsTTL;
+					// ensure resourceid starts with / and has no trailing /
+				$resourceid = '/' . trim($resourceid, '/');
+					// extract subscription id from resource id
+				preg_match('/\\/subscriptions\\/(?<sid>[^\\/]*)/', $resourceid, $result);
+				$subscriptionid = isset($result['sid']) ? $result['sid'] : '';
+				if (isset($result['sid'])) {
+					$subscriptionid = $result['sid'];
+				} else {
+					log_error("Azure subscription id not found in resource id");
+					return false;
+				}
+					// find tenant id from subscription id
+				curl_setopt($ch, CURLOPT_URL, "https://management.azure.com/subscriptions/" . $subscriptionid . "?api-version=2016-09-01");
+				curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+				curl_setopt($ch, CURLOPT_HEADER, 1);
+				curl_setopt($ch, CURLOPT_NOBODY, 1);
+				$output = curl_exec($ch);
+				$pattern = '/Bearer authorization_uri="https:\\/\\/login.windows.net\\/(?<tid>[^"]*)/i';
+				preg_match($pattern, $output, $result);
+				if (isset($result['tid'])) {
+					$tenantid = $result['tid'];
+				} else {
+					log_error("Tenant ID not found");
+					return false;
+				}
+					// get an bearer token
+				curl_setopt($ch, CURLOPT_URL, "https://login.microsoftonline.com/" . $tenantid . "/oauth2/token");
+				curl_setopt($ch, CURLOPT_POST, 1);
+				$body = "resource=" . urlencode("https://management.core.windows.net/") . "&grant_type=client_credentials&client_id=" . $app_id . "&client_secret=" . urlencode($client_secret);
+				curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+				curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+				$server_output = curl_exec($ch);
+				$httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+				preg_match("/\"access_token\":\"(?<tok>[^\"]*)\"/", $server_output, $result);
+				if (isset($result['tok'])) {
+					$bearertoken = $result['tok'];
+				} else {
+					log_error("no valid bearer token");
+					return false;
+				}
+					// Update the DNS record
+				if ($this->_useIPv6) {
+					$url = "https://management.azure.com" . $resourceid . "/AAAA/" . $hostname . "?api-version=2017-09-01";
+					$body = '{"properties":{"TTL":"' . $newttl . '", "AaaaRecords":[{"ipv6Address":"' . $newip . '"}]}}';
+				} else {
+					$url = "https://management.azure.com" . $resourceid . "/A/" . $hostname . "?api-version=2017-09-01";
+					$body = '{"properties":{"TTL":"' . $newttl . '", "ARecords":[{"ipv4Address":"' . $newip . '"}]}}';
+				}
+				$request_headers = array();
+				$request_headers[] = 'Accept: application/json';
+				$request_headers[] = 'Authorization: Bearer ' . $bearertoken;
+				$request_headers[] = 'Content-Type: application/json';
+				curl_setopt($ch, CURLOPT_URL, $url);
+				curl_setopt($ch, CURLOPT_USERAGENT, $this->_UserAgent);
+				curl_setopt($ch, CURLOPT_HTTPHEADER, $request_headers);
+				curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+				curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+				curl_setopt($ch, CURLOPT_HEADER, 1);
+				curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
+				break;
+
+			default:
+				break;
 			}
 			if ($this->_dnsService != 'ods') {
 				curl_setopt($ch, CURLOPT_HEADER, 1);
@@ -831,6 +1127,191 @@
 				$data = substr($response, $header_size);
 				$this->_checkStatus($ch, $data, $header);
 				@curl_close($ch);
+			}
+		}
+
+		/**
+		 * Private Function (added 23 Feb 17)
+		 *   Send Removal To Selected Service.
+		 *
+		 *   Some services do not perform an inplace upgrade.  If they do not then the solution
+		 *   is to remove the existing record and add a new record.
+		 *
+		 * @param unknown $existing_ip If required, an existing IP address for the record.
+		 */
+		function _remove($existing_ip = NULL) {
+			$remove_allowed = false;
+			if ($this->_dnsVerboseLog) {
+				log_error(sprintf(gettext('Dynamic DNS %1$s (%2$s): _remove() starting.'), $this->_dnsService, $this->_FQDN));
+			}
+
+			if (strstr($this->_dnsRequestIf, "_vip")) {
+				$parentif = get_configured_vip_interface($this->_dnsRequestIf);
+				$realparentif = convert_friendly_interface_to_real_interface_name($parentif);
+			} else {
+				$realparentif = $this->_dnsRequestIf;
+			}
+
+			$ch = curl_init();
+
+			if ($this->_useIPv6 == false) {
+				curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+			}
+
+			curl_setopt($ch, CURLOPT_USERAGENT, $this->_UserAgent);
+			curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+			curl_setopt($ch, CURLOPT_INTERFACE, 'if!' . $realparentif);
+			curl_setopt($ch, CURLOPT_TIMEOUT, 120); // Completely empirical
+
+			switch ($this->_dnsService) {
+			case 'dreamhost':
+			case 'dreamhost-v6':
+				$server = 'https://api.dreamhost.com/';
+				$post_data['key'] = $this->_dnsPass;
+				$post_data['unique_id'] = uniqid($this->_dnsHost);
+				$post_data['cmd'] = 'dns-remove_record';
+				$post_data['format'] = 'json';
+				$post_data['value'] = $existing_ip;
+				$post_data['record'] = $this->_dnsHost;
+				$isv6 = ($this->_dnsService === 'dreamhost-v6');
+				$post_data['type'] = $isv6 ? 'AAAA' : 'A';
+				$port = "";
+				if ($this->_dnsServer) {
+					$server = $this->_dnsServer;
+				}
+				if ($this->_dnsPort) {
+					$port = ":" . $this->_dnsPort;
+				}
+				curl_setopt($ch, CURLOPT_URL, $server . $port);
+				curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
+				$remove_allowed = true;
+				break;
+			default:
+				break;
+			}
+			if ($remove_allowed) {
+				curl_setopt($ch, CURLOPT_HEADER, 1);
+				$response = curl_exec($ch);
+				$header_size = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+				$header = substr($response, 0, $header_size);
+				$data = substr($response, $header_size);
+				$this->_checkStatus($ch, $data, $header);
+				@curl_close($ch);
+			}
+		}
+
+		/**
+		 * Private Function (added 23 Feb 17)
+		 * Retrieves current DNS records from an external API source.
+		 *
+		 * Some services cannot perform new operations without the caller
+		 * providing existing record information.
+		 */
+		function _lookup_current() {
+			$lookup_allowed = false;
+			if ($this->_dnsVerboseLog) {
+				log_error(sprintf(gettext('Dynamic DNS %1$s (%2$s): _listCurrent() starting.'), $this->_dnsService, $this->_FQDN));
+			}
+
+			if (strstr($this->_dnsRequestIf, "_vip")) {
+				$parentif = get_configured_vip_interface($this->_dnsRequestIf);
+				$realparentif = convert_friendly_interface_to_real_interface_name($parentif);
+			} else {
+				$realparentif = $this->_dnsRequestIf;
+			}
+
+			$ch = curl_init();
+
+			if ($this->_useIPv6 == false) {
+				curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+			}
+
+			curl_setopt($ch, CURLOPT_USERAGENT, $this->_UserAgent);
+			curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+			curl_setopt($ch, CURLOPT_INTERFACE, 'if!' . $realparentif);
+			curl_setopt($ch, CURLOPT_TIMEOUT, 120); // Completely empirical
+
+			switch ($this->_dnsService) {
+			case 'dreamhost':
+			case 'dreamhost-v6':
+				$server = 'https://api.dreamhost.com/';
+				$post_data['key'] = $this->_dnsPass;
+				$post_data['unique_id'] = uniqid($this->_dnsHost);
+				$post_data['cmd'] = 'dns-list_records';
+				$post_data['format'] = 'json';
+				$port = "";
+				if ($this->_dnsServer) {
+					$server = $this->_dnsServer;
+				}
+				if ($this->_dnsPort) {
+					$port = ":" . $this->_dnsPort;
+				}
+				curl_setopt($ch, CURLOPT_URL, $server . $port);
+				curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
+				$lookup_allowed = true;
+				break;
+			default:
+				break;
+			}
+			if ($lookup_allowed) {
+				curl_setopt($ch, CURLOPT_HEADER, 1);
+				$response = curl_exec($ch);
+				$header_size = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+				$header = substr($response, 0, $header_size);
+				$data = substr($response, $header_size);
+				$this->_checkLookupStatus($ch, $data, $header);
+				@curl_close($ch);
+			}
+		}
+
+		/*
+		 * Private Function (added 23 Feb 17)
+		 *   Retrieve Lookup Status from the provided data and/or header
+		 */
+		function _checkLookupStatus($ch, $data, $header) {
+			if ($this->_dnsVerboseLog) {
+				log_error(sprintf(gettext('Dynamic DNS %1$s (%2$s): _checkLookupStatus() starting.'), $this->_dnsService, $this->_FQDN));
+			}
+			$success_str = "(" . gettext("Success") . ") ";
+			$error_str = "(" . gettext("Error") . ") ";
+			$status_intro = "phpDynDNS ({$this->_dnsHost}): ";
+
+			if ($this->_dnsService != 'ods' && @curl_error($ch)) {
+				$status = gettext("Curl error occurred:") . " " . curl_error($ch);
+				log_error($status);
+				$this->status = $status;
+				return;
+			}
+			switch ($this->_dnsService) {
+			case 'dreamhost':
+			case 'dreamhost-v6':
+				$result = json_decode($data,true);
+				if($result["result"] != "success") {
+					log_error($status_intro . gettext("PAYLOAD:") . " {$data}");
+					$this->_debug($data);
+					return;
+				} else {
+					foreach($result["data"] as $key => $row) {
+						if($row["record"] == $this->_dnsHost &&
+								(($row["type"] == "A" && !$this->_useIPv6)
+										|| ($row["type"] == "AAAA" && $this->_useIPv6)
+								)) {
+							if($row["editable"] == 0) {
+								log_error($status_intro . "host " . $this->_dnsHost . " is not editable.");
+								continue;
+							}
+							$this->_existingRecords[]=array("record"=>$row["type"], "type"=>$row["type"], "existing_val"=>$row["value"]);
+						}
+					}
+				}
+				if (!is_array($this->_existingRecords)){
+					if ($this->_dnsVerboseLog) {
+						log_error(sprintf(gettext('Dynamic DNS %1$s (%2$s): _checkLookupStatus() ending.  No matching records found.'), $this->_dnsService, $this->_FQDN));
+					}
+				}
+				break;
+			default:
+				break;
 			}
 		}
 
@@ -1281,6 +1762,7 @@
 					}
 					break;
 				case 'route53':
+				case 'route53-v6':
 					if(preg_match('/ErrorResponse/', $data)){
 						$status = $status_intro . $error_str . gettext("Route53 API call failed");
 						log_error(sprintf("error message: %s", $data));
@@ -1319,7 +1801,7 @@
 						$status = $status_intro . $success_str . sprintf(gettext('%1$s updated to %2$s'), $this->_dnsHost, $this->_dnsIP);
 						$successful_update = true;
 					} elseif ($output->errors[0]->code === 9103) {
-						$status = $status_intro . $error_str . gettext("Invalid Credentials! Don't forget to use API Key for password field with CloudFlare.");
+						$status = $status_intro . $error_str . gettext("Invalid Credentials! Don't forget to use API Key for password field with Cloudflare.");
 					} elseif (($output->success) && (!$output->result[0]->id)) {
 						$status = $status_intro . $error_str . gettext("Zone or Host ID was not found, check the hostname.");
 					} else {
@@ -1362,6 +1844,16 @@
 						$this->_debug($data);
 					}
 					break;
+				case 'digitalocean':
+					if (preg_match("/\s200\sOK/i", $header)) {
+						$status = $status_intro . $success_str . gettext("IP Address Updated Successfully!");
+						$successful_update = true;
+					} else {
+						$status = $status_intro . "(" . gettext("Unknown Response") . ")";
+						log_error($status_intro . gettext("PAYLOAD:") . " " . $data);
+						$this->_debug($data);
+					}
+					break;
 				case 'dnsimple':
 					/* Responds with HTTP 200 on success.
 					   Responds with HTTP 4xx on error.
@@ -1376,6 +1868,30 @@
 						if (isset($arrbody['errors']['content'])) {
 							foreach ($arrbody['errors']['content'] as $key => $content) {
 								$message .= " " . $content . ".";
+							}
+						}
+						$status = $status_intro . $error_str . $message;
+					} else {
+						$status = $status_intro . "(" . gettext("Unknown Response") . ")";
+						log_error($status_intro . gettext("PAYLOAD:") . " " . $data);
+						$this->_debug($data);
+					}
+					break;
+				case 'godaddy':
+				case 'godaddy-v6':
+					/* Responds with HTTP 200 on success.
+					   Responds with HTTP 4xx or  on error.
+					   Returns JSON data as body */
+;
+					if (preg_match("/\s200\sOK/i", $header)) {
+						$status = $status_intro . $success_str . gettext("IP Address Updated Successfully!");
+						$successful_update = true;
+					} else if (preg_match("/\s4\d\d\s/i", $header)) {
+						$arrbody = json_decode($data, true);
+						$message = $arrbody['message'] . ".";
+						if (isset($arrbody['fields'])) {
+							foreach ($arrbody['fields'] as $error) {
+								$message .= " " . $error['path'] . ": " . $error['message'] . ".";
 							}
 						}
 						$status = $status_intro . $error_str . $message;
@@ -1476,7 +1992,7 @@
 						$status = $status_intro . $error_str . gettext("Result did not match.");
 					} else if (preg_match("/\s401\sUnauthorized/i", $header)) {
 						$status = $status_intro . $error_str . gettext("Invalid username or password");
-					} 
+					}
 					else {
 							$status = $status_intro . "(" . gettext("Unknown Response") . ")";
 							log_error($status_intro . gettext("PAYLOAD:") . " " . $header.$data);
@@ -1484,6 +2000,107 @@
  							$this->_debug($header);
  					}
  					break;
+				case 'hover':
+					if (preg_match('/succeeded":true/i', $data)) {
+						$status = $status_intro . $success_str . gettext("IP Address Changed Successfully!") . " (" . $this->_dnsIP . ")";
+						$successful_update = true;
+					} else {
+						$status = $status_intro . "(" . gettext("Unknown Response") . ")";
+						log_error($status_intro . gettext("PAYLOAD:") . " " . $data);
+						$this->_debug($data);
+					}
+					break;
+				case 'cloudns':
+					$result = json_decode($data, true);
+					if ($result['status'] == 'Success') {
+						$successful_update = true;
+					} else {
+						log_error($result['status'] . "(" . $result['statusDescription'] . ")");
+					}
+					break;
+				case 'dreamhost':
+				case 'dreamhost-v6':
+					$result = json_decode($data,true);
+					if ($this->_dnsVerboseLog) {
+						log_error(sprintf(gettext('_checkStatus() results: %1$s'), $data));
+					}
+					switch ($result['data']) {
+					case 'success':
+					case 'record_added':
+					case 'record_removed':
+						$status = $status_intro . $success_str . gettext("IP Address Changed Successfully!") . " (" . $this->_dnsIP . ")";
+						$successful_update = true;
+						break;
+					case 'no_record':
+					case 'no_such_record ':
+						$status = $status_intro . $error_str . gettext("No record exists.");
+						break;
+					case 'no_type':
+					case 'no_such_type ':
+						$status = $status_intro . $error_str . gettext("No type exists.");
+						break;
+					case 'no_value':
+					case 'no_such_value ':
+						$status = $status_intro . $error_str . gettext("No value exists.");
+						break;
+					case 'no_such_zone':
+						$status = $status_intro . $error_str . gettext("No such zone exists.");
+						break;
+					case 'invalid_record':
+						$status = $status_intro . $error_str . gettext("The specified record is invalid.");
+						break;
+					case 'invalid_type':
+						$status = $status_intro . $error_str . gettext("The specified type is invalid.");
+						break;
+					case 'invalid_value':
+						$status = $status_intro . $error_str . gettext("The specified value is invalid.");
+						break;
+					case 'not_editable ':
+						$status = $status_intro . $error_str . gettext("Record is not editable.");
+						break;
+					case 'record_already_exists_not_editable':
+						$status = $status_intro . $error_str . gettext("Record exists but is not editable.");
+						break;
+					case 'record_already_exists_remove_first':
+						$status = $status_intro . $error_str . gettext("Record exists and must be removed before adding.");
+						break;
+					case 'internal_error_updating_zone':
+						$status = $status_intro . $error_str . gettext("A remote server error occurred updating the zone.");
+						break;
+					case 'internal_error_could_not_load_zone':
+						$status = $status_intro . $error_str . gettext("A remote server error occurred loading the zone.");
+						break;
+					case 'internal_error_could_not_update_zone':
+						$status = $status_intro . $error_str . gettext("A remote server error occurred updating the zone.");
+						break;
+					case 'internal_error_could_not_add_record':
+						$status = $status_intro . $error_str . gettext("A remote server error occurred adding a new record.");
+						break;
+					case 'internal_error_could_not_destroy_record ':
+						$status = $status_intro . $error_str . gettext("A remote server error occurred removing an existing record.");
+						break;
+					default:
+						break;
+					}
+				case 'azure':
+				case 'azurev6':
+					$http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+					if ($http_code == 401) {
+						$status = $status_intro . $error_str . gettext("User Authorization Failed");
+					} else if ($http_code == 201) {
+						$status = $status_intro . $success_str . gettext("IP Address Changed Successfully!");
+						$successful_update = true;
+					} else if ($http_code == 200) {
+						$status = $status_intro . $success_str . gettext("IP Address Changed Successfully!");
+						$successful_update = true;
+					} else {
+						$status = $status_intro . "(" . gettext("Unknown Response") . ")";
+						log_error($status_intro . gettext("PAYLOAD:") . " " . $http_code);
+						$this->_debug($data);
+					}
+					break;
+				default:
+					break;
 			}
 
 			if ($successful_update == true) {
@@ -1676,45 +2293,18 @@
 					return 0;
 				}
 			} else {
-				$ip_address = get_interface_ip($this->_if);
+				$ip_address = dyndnsCheckIP($this->_if);
 				if (!is_ipaddr($ip_address)) {
 					return 0;
 				}
 			}
-			if ($this->_useIPv6 == false && is_private_ip($ip_address)) {
-				$hosttocheck = "checkip.dyndns.org";
-				$try = 0;
-				while ($try < 3) {
-					$checkip = gethostbyname($hosttocheck);
-					if (is_ipaddr($checkip)) {
-						break;
-					}
-					$try++;
-				}
-				if ($try >= 3) {
-					log_error(sprintf(gettext('Dynamic DNS %1$s debug information (%2$s): Could not resolve %3$s to IP using interface IP %4$s.'), $this->_dnsService, $this->_FQDN, $hosttocheck, $ip_address));
-					return 0;
-				}
-				$ip_ch = curl_init("http://{$checkip}");
-				curl_setopt($ip_ch, CURLOPT_RETURNTRANSFER, 1);
-				curl_setopt($ip_ch, CURLOPT_SSL_VERIFYPEER, FALSE);
-				curl_setopt($ip_ch, CURLOPT_INTERFACE, 'host!' . $ip_address);
-				curl_setopt($ip_ch, CURLOPT_CONNECTTIMEOUT, '30');
-				curl_setopt($ip_ch, CURLOPT_TIMEOUT, 120);
-				if ($this->_useIPv6 == false) {
-					curl_setopt($ip_ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-				}
-				$ip_result_page = curl_exec($ip_ch);
-				curl_close($ip_ch);
-				$ip_result_decoded = urldecode($ip_result_page);
-				preg_match('/Current IP Address: (.*)<\/body>/', $ip_result_decoded, $matches);
-				$ip_address = trim($matches[1]);
+			if ($this->_useIPv6 == false && is_private_ip(get_interface_ip($this->_if))) {
 				if (is_ipaddr($ip_address)) {
 					if ($this->_dnsVerboseLog) {
-						log_error(sprintf(gettext('Dynamic DNS %1$s (%2$s): %3$s extracted from %4$s'), $this->_dnsService, $this->_FQDN, $ip_address, $hosttocheck));
+						log_error(sprintf(gettext('Dynamic DNS %1$s (%2$s): %3$s extracted from Check IP Service'), $this->_dnsService, $this->_FQDN, $ip_address));
 					}
 				} else {
-					log_error(sprintf(gettext('Dynamic DNS %1$s (%2$s): IP address could not be extracted from %3$s'), $this->_dnsService, $this->_FQDN, $hosttocheck));
+					log_error(sprintf(gettext('Dynamic DNS %1$s (%2$s): IP address could not be extracted from Check IP Service'), $this->_dnsService, $this->_FQDN));
 					return 0;
 				}
 			} else {

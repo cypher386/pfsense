@@ -3,7 +3,7 @@
  * wake_on_lan.widget.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2017 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c)  2010 Yehuda Katz
  * All rights reserved.
  *
@@ -19,8 +19,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-$nocsrf = true;
 
 require_once("guiconfig.inc");
 require_once("/usr/local/www/widgets/include/wake_on_lan.inc");
@@ -39,6 +37,7 @@ if (!function_exists('get_wolent_key')) {
 }
 
 if ($_POST['widgetkey']) {
+	set_customwidgettitle($user_settings);
 
 	$validNames = array();
 
@@ -101,7 +100,7 @@ if (count($wolcomputers) > 0):
 		<?php endif; ?>
 			</td>
 			<td>
-				<a href="services_wol.php?mac=<?= $wolent['mac'] ?>&amp;if=<?= $wolent['interface']?>">
+				<a href="services_wol.php?mac=<?= $wolent['mac'] ?>&amp;if=<?= $wolent['interface']?>" usepost>
 				<i class="fa fa-power-off" data-toggle="tooltip" title="<?= gettext("Wake up!") ?>"></i>
 				</a>
 			</td>
@@ -140,9 +139,10 @@ if (is_array($config['dhcpd'])) {
 </div><div id="<?=$widget_panel_footer_id?>" class="panel-footer collapse">
 
 <form action="/widgets/widgets/wake_on_lan.widget.php" method="post" class="form-horizontal">
+	<?=gen_customwidgettitle_div($widgetconfig['title']); ?>
     <div class="panel panel-default col-sm-10">
 		<div class="panel-body">
-			<input type="hidden" name="widgetkey" value="<?=$widgetkey; ?>">
+			<input type="hidden" name="widgetkey" value="<?=htmlspecialchars($widgetkey); ?>">
 			<div class="table responsive">
 				<table class="table table-striped table-hover table-condensed">
 					<thead>

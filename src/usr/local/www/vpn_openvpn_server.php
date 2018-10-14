@@ -3,7 +3,7 @@
  * vpn_openvpn_server.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2008 Shrew Soft Inc.
  * All rights reserved.
  *
@@ -29,9 +29,14 @@
 
 require_once("guiconfig.inc");
 require_once("openvpn.inc");
+require_once("pfsense-utils.inc");
 require_once("pkg-utils.inc");
 
 global $openvpn_topologies, $openvpn_tls_modes;
+
+if (!is_array($config['openvpn'])) {
+	$config['openvpn'] = array();
+}
 
 if (!is_array($config['openvpn']['openvpn-server'])) {
 	$config['openvpn']['openvpn-server'] = array();
@@ -96,19 +101,19 @@ if ($_POST['act'] == "del") {
 
 if ($act == "new") {
 	$pconfig['ncp_enable'] = "enabled";
-	$pconfig['ncp-ciphers'] = "AES-256-GCM,AES-128-GCM";
+	$pconfig['ncp-ciphers'] = "AES-128-GCM";
 	$pconfig['autokey_enable'] = "yes";
 	$pconfig['tlsauth_enable'] = "yes";
 	$pconfig['autotls_enable'] = "yes";
-	$pconfig['dh_length'] = 1024;
+	$pconfig['dh_length'] = 2048;
 	$pconfig['dev_mode'] = "tun";
 	$pconfig['interface'] = "wan";
 	$pconfig['local_port'] = openvpn_port_next('UDP');
-	$pconfig['pool_enable'] = "yes";
 	$pconfig['cert_depth'] = 1;
+	$pconfig['create_gw'] = "both"; // v4only, v6only, or both (default: both)
 	$pconfig['verbosity_level'] = 1; // Default verbosity is 1
-	// OpenVPN Defaults to SHA1
-	$pconfig['digest'] = "SHA1";
+	$pconfig['digest'] = "SHA256";
+	$pconfig['compression'] = "none";
 }
 
 if ($act == "edit") {
@@ -121,7 +126,7 @@ if ($act == "edit") {
 		if (isset($a_server[$id]['ncp-ciphers'])) {
 			$pconfig['ncp-ciphers'] = $a_server[$id]['ncp-ciphers'];
 		} else {
-			$pconfig['ncp-ciphers'] = "AES-256-GCM,AES-128-GCM";
+			$pconfig['ncp-ciphers'] = "AES-128-GCM";
 		}
 		if (isset($a_server[$id]['ncp_enable'])) {
 			$pconfig['ncp_enable'] = $a_server[$id]['ncp_enable'];
@@ -163,8 +168,7 @@ if ($act == "edit") {
 			$pconfig['shared_key'] = base64_decode($a_server[$id]['shared_key']);
 		}
 		$pconfig['crypto'] = $a_server[$id]['crypto'];
-		// OpenVPN Defaults to SHA1 if unset
-		$pconfig['digest'] = !empty($a_server[$id]['digest']) ? $a_server[$id]['digest'] : "SHA1";
+		$pconfig['digest'] = !empty($a_server[$id]['digest']) ? $a_server[$id]['digest'] : "SHA256";
 		$pconfig['engine'] = $a_server[$id]['engine'];
 
 		$pconfig['tunnel_network'] = $a_server[$id]['tunnel_network'];
@@ -173,6 +177,7 @@ if ($act == "edit") {
 		$pconfig['remote_network'] = $a_server[$id]['remote_network'];
 		$pconfig['remote_networkv6'] = $a_server[$id]['remote_networkv6'];
 		$pconfig['gwredir'] = $a_server[$id]['gwredir'];
+		$pconfig['gwredir6'] = $a_server[$id]['gwredir6'];
 		$pconfig['local_network'] = $a_server[$id]['local_network'];
 		$pconfig['local_networkv6'] = $a_server[$id]['local_networkv6'];
 		$pconfig['maxclients'] = $a_server[$id]['maxclients'];
@@ -182,11 +187,11 @@ if ($act == "edit") {
 		$pconfig['client2client'] = $a_server[$id]['client2client'];
 
 		$pconfig['dynamic_ip'] = $a_server[$id]['dynamic_ip'];
-		$pconfig['pool_enable'] = $a_server[$id]['pool_enable'];
 		$pconfig['topology'] = $a_server[$id]['topology'];
 
 		$pconfig['serverbridge_dhcp'] = $a_server[$id]['serverbridge_dhcp'];
 		$pconfig['serverbridge_interface'] = $a_server[$id]['serverbridge_interface'];
+		$pconfig['serverbridge_routegateway'] = $a_server[$id]['serverbridge_routegateway'];
 		$pconfig['serverbridge_dhcp_start'] = $a_server[$id]['serverbridge_dhcp_start'];
 		$pconfig['serverbridge_dhcp_end'] = $a_server[$id]['serverbridge_dhcp_end'];
 
@@ -227,11 +232,6 @@ if ($act == "edit") {
 			$pconfig['wins_server_enable'] = true;
 		}
 
-		$pconfig['client_mgmt_port'] = $a_server[$id]['client_mgmt_port'];
-		if ($pconfig['client_mgmt_port']) {
-			$pconfig['client_mgmt_port_enable'] = true;
-		}
-
 		$pconfig['nbdd_server1'] = $a_server[$id]['nbdd_server1'];
 		if ($pconfig['nbdd_server1']) {
 			$pconfig['nbdd_server_enable'] = true;
@@ -243,6 +243,12 @@ if ($act == "edit") {
 
 		$pconfig['duplicate_cn'] = isset($a_server[$id]['duplicate_cn']);
 
+		if (isset($a_server[$id]['create_gw'])) {
+			$pconfig['create_gw'] = $a_server[$id]['create_gw'];
+		} else {
+			$pconfig['create_gw'] = "both"; // v4only, v6only, or both (default: both)
+		}
+
 		if (isset($a_server[$id]['verbosity_level'])) {
 			$pconfig['verbosity_level'] = $a_server[$id]['verbosity_level'];
 		} else {
@@ -250,6 +256,8 @@ if ($act == "edit") {
 		}
 
 		$pconfig['push_blockoutsidedns'] = $a_server[$id]['push_blockoutsidedns'];
+		$pconfig['udp_fast_io'] = $a_server[$id]['udp_fast_io'];
+		$pconfig['sndrcvbuf'] = $a_server[$id]['sndrcvbuf'];
 		$pconfig['push_register_dns'] = $a_server[$id]['push_register_dns'];
 	}
 }
@@ -299,7 +307,7 @@ if ($_POST['save']) {
 	}
 
 	/* input validation */
-	if ($result = openvpn_validate_port($pconfig['local_port'], 'Local port')) {
+	if ($result = openvpn_validate_port($pconfig['local_port'], 'Local port', 1)) {
 		$input_errors[] = $result;
 	}
 
@@ -399,12 +407,6 @@ if ($_POST['save']) {
 		}
 	}
 
-	if ($pconfig['client_mgmt_port_enable']) {
-		if ($result = openvpn_validate_port($pconfig['client_mgmt_port'], 'Client management port')) {
-			$input_errors[] = $result;
-		}
-	}
-
 	if ($pconfig['maxclients'] && !is_numericint($pconfig['maxclients'])) {
 		$input_errors[] = gettext("The field 'Concurrent connections' must be numeric.");
 	}
@@ -454,6 +456,10 @@ if ($_POST['save']) {
 		if ($pconfig['serverbridge_dhcp'] && $pconfig['tunnel_network']) {
 			$input_errors[] = gettext("Using a tunnel network and server bridge settings together is not allowed.");
 		}
+		if (($pconfig['serverbridge_dhcp'] && $pconfig['serverbridge_routegateway']) &&
+		    ((empty($pconfig['serverbridge_interface'])) || (strcmp($pconfig['serverbridge_interface'], "none") == 0))) {
+			$input_errors[] = gettext("Bridge Route Gateway requires a valid Bridge Interface.");
+		}
 		if (($pconfig['serverbridge_dhcp_start'] && !$pconfig['serverbridge_dhcp_end']) ||
 		    (!$pconfig['serverbridge_dhcp_start'] && $pconfig['serverbridge_dhcp_end'])) {
 			$input_errors[] = gettext("Server Bridge DHCP Start and End must both be empty, or defined.");
@@ -467,6 +473,18 @@ if ($_POST['save']) {
 		if (ip_greater_than($pconfig['serverbridge_dhcp_start'], $pconfig['serverbridge_dhcp_end'])) {
 			$input_errors[] = gettext("The Server Bridge DHCP range is invalid (start higher than end).");
 		}
+	}
+
+	/* UDP Fast I/O is not compatible with TCP, so toss the option out when
+	   submitted since it can't be set this way legitimately. This also avoids
+	   having to perform any more trickery on the stored option to not preserve
+	   the value when changing modes. */
+	if ($pconfig['udp_fast_io'] && (strtolower(substr($pconfig['protocol'], 0, 3)) != "udp")) {
+		unset($pconfig['udp_fast_io']);
+	}
+
+	if (!empty($pconfig['sndrcvbuf']) && !array_key_exists($pconfig['sndrcvbuf'], openvpn_get_buffer_values())) {
+		$input_errors[] = gettext("The supplied Send/Receive Buffer size is invalid.");
 	}
 
 	do_input_validation($_POST, $reqdfields, $reqdfieldsn, $input_errors);
@@ -534,6 +552,7 @@ if ($_POST['save']) {
 		$server['remote_network'] = $pconfig['remote_network'];
 		$server['remote_networkv6'] = $pconfig['remote_networkv6'];
 		$server['gwredir'] = $pconfig['gwredir'];
+		$server['gwredir6'] = $pconfig['gwredir6'];
 		$server['local_network'] = $pconfig['local_network'];
 		$server['local_networkv6'] = $pconfig['local_networkv6'];
 		$server['maxclients'] = $pconfig['maxclients'];
@@ -543,11 +562,11 @@ if ($_POST['save']) {
 		$server['client2client'] = $pconfig['client2client'];
 
 		$server['dynamic_ip'] = $pconfig['dynamic_ip'];
-		$server['pool_enable'] = $pconfig['pool_enable'];
 		$server['topology'] = $pconfig['topology'];
 
 		$server['serverbridge_dhcp'] = $pconfig['serverbridge_dhcp'];
 		$server['serverbridge_interface'] = $pconfig['serverbridge_interface'];
+		$server['serverbridge_routegateway'] = $pconfig['serverbridge_routegateway'];
 		$server['serverbridge_dhcp_start'] = $pconfig['serverbridge_dhcp_start'];
 		$server['serverbridge_dhcp_end'] = $pconfig['serverbridge_dhcp_end'];
 
@@ -565,6 +584,10 @@ if ($_POST['save']) {
 		if ($pconfig['push_blockoutsidedns']) {
 			$server['push_blockoutsidedns'] = $pconfig['push_blockoutsidedns'];
 		}
+		if ($pconfig['udp_fast_io']) {
+			$server['udp_fast_io'] = $pconfig['udp_fast_io'];
+		}
+		$server['sndrcvbuf'] = $pconfig['sndrcvbuf'];
 		if ($pconfig['push_register_dns']) {
 			$server['push_register_dns'] = $pconfig['push_register_dns'];
 		}
@@ -578,6 +601,7 @@ if ($_POST['save']) {
 		$server['netbios_ntype'] = $pconfig['netbios_ntype'];
 		$server['netbios_scope'] = $pconfig['netbios_scope'];
 
+		$server['create_gw'] = $pconfig['create_gw'];
 		$server['verbosity_level'] = $pconfig['verbosity_level'];
 
 		if ($pconfig['netbios_enable']) {
@@ -590,10 +614,6 @@ if ($_POST['save']) {
 			if ($pconfig['dns_server_enable']) {
 				$server['nbdd_server1'] = $pconfig['nbdd_server1'];
 			}
-		}
-
-		if ($pconfig['client_mgmt_port_enable']) {
-			$server['client_mgmt_port'] = $pconfig['client_mgmt_port'];
 		}
 
 		if ($_POST['duplicate_cn'] == "yes") {
@@ -855,7 +875,7 @@ if ($act=="new" || $act=="edit"):
 		    sprint_info_box(gettext('Only DH parameter sets which exist in /etc/ are shown.') .
 		        '<br/>' .
 		        gettext('Generating new or stronger DH parameters is CPU-intensive and must be performed manually.') . ' ' .
-		        sprintf(gettext('Consult %1$sthe doc wiki article on DH Parameters%2$sfor information on generating new or stronger paramater sets.'),
+		        sprintf(gettext('Consult %1$sthe doc wiki article on DH Parameters%2$sfor information on generating new or stronger parameter sets.'),
 					'<a href="https://doc.pfsense.org/index.php/DH_Parameters">',
 					'</a> '),
 				'info', false),
@@ -942,7 +962,7 @@ if ($act=="new" || $act=="edit"):
 		openvpn_get_digestlist()
 		))->setHelp('The algorithm used to authenticate data channel packets, and control channel packets if a TLS Key is present.%1$s' .
 		    'When an AEAD Encryption Algorithm mode is used, such as AES-GCM, this digest is used for the control channel only, not the data channel.%1$s' .
-		    'Leave this set to SHA1 unless all clients are set to match. SHA1 is the default for OpenVPN. ',
+		    'The server and all clients must have the same setting. While SHA1 is the default for OpenVPN, this algorithm is insecure. ',
 			'<br />');
 
 	$section->addInput(new Form_Select(
@@ -977,9 +997,9 @@ if ($act=="new" || $act=="edit"):
 		'text',
 		$pconfig['tunnel_network']
 	))->setHelp('This is the IPv4 virtual network used for private communications between this server and client ' .
-				'hosts expressed using CIDR (e.g. 10.0.8.0/24). The first network address will be assigned to ' .
-				'the server virtual interface. The remaining network addresses can optionally be assigned ' .
-				'to connecting clients (see Address Pool).');
+				'hosts expressed using CIDR notation (e.g. 10.0.8.0/24). The first usable address in the network will be assigned to ' .
+				'the server virtual interface. The remaining usable addresses will be assigned ' .
+				'to connecting clients.');
 
 	$section->addInput(new Form_Input(
 		'tunnel_networkv6',
@@ -987,9 +1007,9 @@ if ($act=="new" || $act=="edit"):
 		'text',
 		$pconfig['tunnel_networkv6']
 	))->setHelp('This is the IPv6 virtual network used for private ' .
-				'communications between this server and client hosts expressed using CIDR (e.g. fe80::/64). ' .
-				'The first network address will be assigned to the server virtual interface. The remaining ' .
-				'network addresses can optionally be assigned to connecting clients (see Address Pool).');
+				'communications between this server and client hosts expressed using CIDR notation (e.g. fe80::/64). ' .
+				'The ::1 address in the network will be assigned to the server virtual interface. The remaining ' .
+				'addresses will be assigned to connecting clients.');
 
 	$section->addInput(new Form_Checkbox(
 		'serverbridge_dhcp',
@@ -1006,6 +1026,15 @@ if ($act=="new" || $act=="edit"):
 		))->setHelp('The interface to which this TAP instance will be bridged. This is not done automatically. This interface must be assigned ' .
 						'and the bridge created separately. This setting controls which existing IP address and subnet ' .
 						'mask are used by OpenVPN for the bridge. Setting this to "none" will cause the Server Bridge DHCP settings below to be ignored.');
+
+	$section->addInput(new Form_Checkbox(
+		'serverbridge_routegateway',
+		'Bridge Route Gateway',
+		'Push the Bridge Interface IPv4 address to connecting clients as a route gateway',
+		$pconfig['serverbridge_routegateway']
+	))->setHelp('When omitting the <b>IPv4 Tunnel Network</b> for a bridge, connecting clients cannot automatically determine a server-side gateway for <b>IPv4 Local Network(s)</b> ' .
+						'or <b>Redirect IPv4 Gateway</b> traffic. When enabled, this option sends the IPv4 address of the selected <b>Bridge Interface</b> to clients ' .
+						'which they can then use as a gateway for routing traffic outside of the bridged subnet. OpenVPN does not currently support this mechanism for IPv6.');
 
 	$section->addInput(new Form_Input(
 		'serverbridge_dhcp_start',
@@ -1025,9 +1054,15 @@ if ($act=="new" || $act=="edit"):
 
 	$section->addInput(new Form_Checkbox(
 		'gwredir',
-		'Redirect Gateway',
-		'Force all client generated traffic through the tunnel.',
+		'Redirect IPv4 Gateway',
+		'Force all client-generated IPv4 traffic through the tunnel.',
 		$pconfig['gwredir']
+	));
+	$section->addInput(new Form_Checkbox(
+		'gwredir6',
+		'Redirect IPv6 Gateway',
+		'Force all client-generated IPv6 traffic through the tunnel.',
+		$pconfig['gwredir6']
 	));
 
 	$section->addInput(new Form_Input(
@@ -1079,9 +1114,14 @@ if ($act=="new" || $act=="edit"):
 		'Compression',
 		$pconfig['compression'],
 		$openvpn_compression_modes
-		))->setHelp('Compress tunnel packets using the LZO algorithm. ' .
+		))->setHelp('Compress tunnel packets using the LZO algorithm. %1$s' .
+					'Compression can potentially increase throughput but may allow an attacker to extract secrets if they can control ' .
+					'compressed plaintext traversing the VPN (e.g. HTTP). ' .
+					'Before enabling compression, consult information about the VORACLE, CRIME, TIME, and BREACH attacks against TLS ' .
+					'to decide if the use case for this specific VPN is vulnerable to attack. %1$s%1$s' .
 					'Adaptive compression will dynamically disable compression for a period of time if OpenVPN detects that the data in the ' .
-					'packets is not being compressed efficiently.');
+					'packets is not being compressed efficiently.',
+					'<br/>');
 
 	$section->addInput(new Form_Checkbox(
 		'compression_push',
@@ -1121,13 +1161,6 @@ if ($act=="new" || $act=="edit"):
 		'Dynamic IP',
 		'Allow connected clients to retain their connections if their IP address changes.',
 		$pconfig['dynamic_ip']
-	));
-
-	$section->addInput(new Form_Checkbox(
-		'pool_enable',
-		'Address Pool',
-		'Provide a virtual adapter IP address to clients (see Tunnel Network).',
-		$pconfig['pool_enable']
 	));
 
 	$section->addInput(new Form_Select(
@@ -1273,21 +1306,6 @@ if ($act=="new" || $act=="edit"):
 		$pconfig['wins_server2']
 	));
 
-	$section->addInput(new Form_Checkbox(
-		'client_mgmt_port_enable',
-		'Enable custom port ',
-		'Use a different management port for clients.',
-		$pconfig['client_mgmt_port_enable']
-	));
-
-	$section->addInput(new Form_Input(
-		'client_mgmt_port',
-		'Management port',
-		'number',
-		$pconfig['client_mgmt_port']
-	))->setHelp('The default port is 166. Specify a different port if the client machines need to select from multiple OpenVPN links.');
-
-
 	$form->add($section);
 
 	$section = new Form_Section('Advanced Configuration');
@@ -1298,6 +1316,55 @@ if ($act=="new" || $act=="edit"):
 		$pconfig['custom_options']
 	))->setHelp('Enter any additional options to add to the OpenVPN server configuration here, separated by semicolon.%1$s' .
 				'EXAMPLE: push "route 10.0.0.0 255.255.255.0"', '<br />');
+
+	$section->addInput(new Form_Checkbox(
+		'udp_fast_io',
+		'UDP Fast I/O',
+		'Use fast I/O operations with UDP writes to tun/tap. Experimental.',
+		$pconfig['udp_fast_io']
+	))->setHelp('Optimizes the packet write event loop, improving CPU efficiency by 5% to 10%. ' .
+		'Not compatible with all platforms, and not compatible with OpenVPN bandwidth limiting.');
+
+	$section->addInput(new Form_Select(
+		'sndrcvbuf',
+		'Send/Receive Buffer',
+		$pconfig['sndrcvbuf'],
+		openvpn_get_buffer_values()
+		))->setHelp('Configure a Send and Receive Buffer size for OpenVPN. ' .
+				'The default buffer size can be too small in many cases, depending on hardware and network uplink speeds. ' .
+				'Finding the best buffer size can take some experimentation. To test the best value for a site, start at ' .
+				'512KiB and test higher and lower values.');
+
+	$group = new Form_Group('Gateway creation');
+	$group->add(new Form_Checkbox(
+		'create_gw',
+		null,
+		'Both',
+		($pconfig['create_gw'] == "both"),
+		'both'
+	))->displayAsRadio();
+
+	$group->add(new Form_Checkbox(
+		'create_gw',
+		null,
+		'IPv4 only',
+		($pconfig['create_gw'] == "v4only"),
+		'v4only'
+	))->displayAsRadio();
+
+	$group->add(new Form_Checkbox(
+		'create_gw',
+		null,
+		'IPv6 only',
+		($pconfig['create_gw'] == "v6only"),
+		'v6only'
+	))->displayAsRadio();
+
+	$group->setHelp('If you assign a virtual interface to this OpenVPN server, ' .
+		'this setting controls which gateway types will be created. The default ' .
+		'setting is \'both\'.');
+
+	$section->add($group);
 
 	$section->addInput(new Form_Select(
 		'verbosity_level',
@@ -1337,6 +1404,7 @@ else:
 		<table class="table table-striped table-hover table-condensed sortable-theme-bootstrap table-rowdblclickedit" data-sortable>
 			<thead>
 				<tr>
+					<th><?=gettext("Interface")?></th>
 					<th><?=gettext("Protocol / Port")?></th>
 					<th><?=gettext("Tunnel Network")?></th>
 					<th><?=gettext("Crypto")?></th>
@@ -1351,6 +1419,9 @@ else:
 	foreach ($a_server as $server):
 ?>
 				<tr <?=isset($server['disable']) ? 'class="disabled"':''?>>
+					<td>
+						<?=convert_openvpn_interface_to_friendly_descr($server['interface'])?>
+					</td>
 					<td>
 						<?=htmlspecialchars($server['protocol'])?> / <?=htmlspecialchars($server['local_port'])?>
 					</td>
@@ -1482,6 +1553,7 @@ events.push(function() {
 				hideInput('remote_network', false);
 				hideInput('remote_networkv6', false);
 				hideCheckbox('gwredir', true);
+				hideCheckbox('gwredir6', true);
 				hideInput('local_network', true);
 				hideInput('local_networkv6', true);
 				hideMultiClass('authmode', true);
@@ -1493,6 +1565,7 @@ events.push(function() {
 				hideInput('remote_network', false);
 				hideInput('remote_networkv6', false);
 				hideCheckbox('gwredir', false);
+				hideCheckbox('gwredir6', false);
 				hideInput('local_network', false);
 				hideInput('local_networkv6', false);
 				hideMultiClass('authmode', true);
@@ -1504,6 +1577,7 @@ events.push(function() {
 				hideInput('remote_network', true);
 				hideInput('remote_networkv6', true);
 				hideCheckbox('gwredir', false);
+				hideCheckbox('gwredir6', false);
 				hideInput('local_network', false);
 				hideInput('local_networkv6', false);
 				hideMultiClass('authmode', false);
@@ -1520,6 +1594,7 @@ events.push(function() {
 				hideInput('remote_network', true);
 				hideInput('remote_networkv6', true);
 				hideCheckbox('gwredir', false);
+				hideCheckbox('gwredir6', false);
 				hideInput('local_network', false);
 				hideInput('local_networkv6', false);
 				hideCheckbox('client2client', false);
@@ -1527,8 +1602,17 @@ events.push(function() {
 		}
 
 		gwredir_change();
+		gwredir6_change();
 		tlsauth_change();
 		autokey_change();
+	}
+
+	function protocol_change() {
+		if ($('#protocol').val().substring(0, 3).toLowerCase() == 'udp') {
+			hideCheckbox('udp_fast_io', false);
+		} else {
+			hideCheckbox('udp_fast_io', true);
+		}
 	}
 
 	// Process "Enable authentication of TLS packets" checkbox
@@ -1569,8 +1653,13 @@ events.push(function() {
 		var hide = $('#gwredir').prop('checked')
 
 		hideInput('local_network', hide);
-		hideInput('local_networkv6', hide);
 //		hideInput('remote_network', hide);
+	}
+
+	function gwredir6_change() {
+		var hide = $('#gwredir6').prop('checked')
+
+		hideInput('local_networkv6', hide);
 //		hideInput('remote_networkv6', hide);
 	}
 
@@ -1596,11 +1685,6 @@ events.push(function() {
 		hideInput('wins_server2', hide);
 	}
 
-	function client_mgmt_port_change() {
-		var hide  = ! $('#client_mgmt_port_enable').prop('checked')
-
-		hideInput('client_mgmt_port', hide);
-	}
 
 	function ntp_server_change() {
 		var hide  = ! $('#ntp_server_enable').prop('checked')
@@ -1616,8 +1700,6 @@ events.push(function() {
 		hideInput('netbios_scope', hide);
 		hideCheckbox('wins_server_enable', hide);
 		wins_server_change();
-//		hideCheckbox('client_mgmt_port_enable', hide);
-//		client_mgmt_port_change();
 	}
 
 	function tuntap_change() {
@@ -1646,6 +1728,7 @@ events.push(function() {
 				hideInput('tunnel_network', false);
 				hideCheckbox('serverbridge_dhcp', true);
 				hideInput('serverbridge_interface', true);
+				hideCheckbox('serverbridge_routegateway', true);
 				hideInput('serverbridge_dhcp_start', true);
 				hideInput('serverbridge_dhcp_end', true);
 				setRequired('tunnel_network', true);
@@ -1658,6 +1741,7 @@ events.push(function() {
 					// the display status of local network fields depends on
 					// the state of the gwredir checkbox.
 					gwredir_change();
+					gwredir6_change();
 					hideInput('topology', false);
 				}
 				break;
@@ -1670,16 +1754,19 @@ events.push(function() {
 					hideCheckbox('serverbridge_dhcp', false);
 					disableInput('serverbridge_dhcp', false);
 					hideInput('serverbridge_interface', false);
+					hideCheckbox('serverbridge_routegateway', false);
 					hideInput('serverbridge_dhcp_start', false);
 					hideInput('serverbridge_dhcp_end', false);
 					hideInput('topology', true);
 
 					if ($('#serverbridge_dhcp').prop('checked')) {
 						disableInput('serverbridge_interface', false);
+						hideCheckbox('serverbridge_routegateway', false);
 						disableInput('serverbridge_dhcp_start', false);
 						disableInput('serverbridge_dhcp_end', false);
 					} else {
 						disableInput('serverbridge_interface', true);
+						hideCheckbox('serverbridge_routegateway', true);
 						disableInput('serverbridge_dhcp_start', true);
 						disableInput('serverbridge_dhcp_end', true);
 					}
@@ -1687,6 +1774,7 @@ events.push(function() {
 					hideInput('topology', true);
 					disableInput('serverbridge_dhcp', true);
 					disableInput('serverbridge_interface', true);
+					hideCheckbox('serverbridge_routegateway', true);
 					disableInput('serverbridge_dhcp_start', true);
 					disableInput('serverbridge_dhcp_end', true);
 				}
@@ -1707,11 +1795,6 @@ events.push(function() {
 		netbios_change();
 	});
 
-	// Client management port
-	$('#client_mgmt_port_enable').click(function () {
-		client_mgmt_port_change();
-	});
-
 	 // Wins server port
 	$('#wins_server_enable').click(function () {
 		wins_server_change();
@@ -1730,6 +1813,11 @@ events.push(function() {
 	 // Gateway redirect
 	$('#gwredir').click(function () {
 		gwredir_change();
+	});
+
+	 // Gateway redirect IPv6
+	$('#gwredir6').click(function () {
+		gwredir6_change();
 	});
 
 	 // Auto TLSkey generation
@@ -1753,8 +1841,13 @@ events.push(function() {
 		tuntap_change();
 	});
 
+	// Protocol
+	$('#protocol').change(function () {
+		protocol_change();
+	});
+
 	 // Tun/tap mode
-	$('#dev_mode, #serverbridge_dhcp').click(function () {
+	$('#dev_mode, #serverbridge_dhcp').change(function () {
 		tuntap_change();
 	});
 
@@ -1810,13 +1903,14 @@ events.push(function() {
 
 	// ---------- Set initial page display state ----------------------------------------------------------------------
 	mode_change();
+	protocol_change();
 	autokey_change();
 	tlsauth_change();
 	gwredir_change();
+	gwredir6_change();
 	dns_domain_change();
 	dns_server_change();
 	wins_server_change();
-	client_mgmt_port_change();
 	ntp_server_change();
 	netbios_change();
 	tuntap_change();

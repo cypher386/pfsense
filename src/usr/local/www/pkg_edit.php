@@ -3,7 +3,7 @@
  * pkg_edit.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,17 +28,13 @@
 
 ini_set('max_execution_time', '0');
 
-require_once("guiconfig.inc");
-require_once("functions.inc");
 require_once("filter.inc");
+require_once("functions.inc");
+require_once("guiconfig.inc");
 require_once("shaper.inc");
 require_once("pkg-utils.inc");
+require_once("pfsense-utils.inc");
 require_once("util.inc");
-
-/* dummy stubs needed by some code that was MFC'd */
-function pfSenseHeader($location) {
-	header("Location: " . $location);
-}
 
 $xml = htmlspecialchars($_REQUEST['xml']);
 
@@ -86,14 +82,23 @@ if ($pkg['custom_php_global_functions'] != "") {
 }
 
 // grab the installedpackages->package_name section.
+if ($config['installedpackages'] && !is_array($config['installedpackages'][xml_safe_fieldname($pkg['name'])])) {
+	$config['installedpackages'][xml_safe_fieldname($pkg['name'])] = array();
+}
+
 if ($config['installedpackages'] && !is_array($config['installedpackages'][xml_safe_fieldname($pkg['name'])]['config'])) {
 	$config['installedpackages'][xml_safe_fieldname($pkg['name'])]['config'] = array();
 }
 
-// If the first entry in the array is an empty <config/> tag, kill it.
+/* If the first entry in the array is an empty <config/> tag, kill it.
+ * See the following tickets for more:
+ *  https://redmine.pfsense.org/issues/7624
+ *  https://redmine.pfsense.org/issues/476
+ */
 if ($config['installedpackages'] &&
     (count($config['installedpackages'][xml_safe_fieldname($pkg['name'])]['config']) > 0) &&
-    ($config['installedpackages'][xml_safe_fieldname($pkg['name'])]['config'][0] == "")) {
+    (empty($config['installedpackages'][xml_safe_fieldname($pkg['name'])]['config'][0])) &&
+    is_array($config['installedpackages'][xml_safe_fieldname($pkg['name'])]['config'])) {
 	array_shift($config['installedpackages'][xml_safe_fieldname($pkg['name'])]['config']);
 }
 
@@ -211,7 +216,12 @@ if ($_POST) {
 					}
 			}
 
-			if (isset($id) && $a_pkg[$id]) {
+			/* If the user supplied an ID and it exists, or if id=0
+			 * and the settings are invalid, overwrite.
+			 * See https://redmine.pfsense.org/issues/7624
+			 */
+			if (isset($id) && ($a_pkg[$id] ||
+			   (($id == 0) && !is_array($a_pkg[$id])) )) {
 				$a_pkg[$id] = $pkgarr;
 			} else {
 				$a_pkg[] = $pkgarr;
@@ -546,10 +556,6 @@ if ($pkg['tabs'] != "") {
 			$active = false;
 		}
 
-		if (isset($tab['no_drop_down'])) {
-			$no_drop_down = true;
-		}
-
 		$urltmp = "";
 		if ($tab['url'] != "") {
 			$urltmp = $tab['url'];
@@ -588,7 +594,7 @@ if ($pkg['custom_php_after_head_command']) {
 }
 if (isset($tab_array)) {
 	foreach ($tab_array as $tabid => $tab) {
-		display_top_tabs($tab); //, $no_drop_down, $tabid);
+		display_top_tabs($tab);
 	}
 }
 
@@ -681,7 +687,7 @@ foreach ($pkg['fields']['field'] as $pkga) {
 			));
 
 			$advfield_count++;
-		}  else {
+		} else {
 			if (isset($section)) {
 				$form->add($section);
 			}
@@ -902,8 +908,11 @@ foreach ($pkg['fields']['field'] as $pkga) {
 			$onchange = (isset($pkga['onchange']) ? "{$pkga['onchange']}" : '');
 
 			$source_url = $pkga['source'];
-			eval("\$pkg_source_txt = &$source_url;");
-
+			try{
+				@eval("\$pkg_source_txt = &$source_url;");
+			} catch (\Throwable | \Error | \Exception $e) {
+				//do nothing
+			}
 			#check if show disable option is present on xml
 			if (!is_array($pkg_source_txt)) {
 				$pkg_source_txt = array();
@@ -1092,6 +1101,11 @@ foreach ($pkg['fields']['field'] as $pkga) {
 			// Use xml tag <typealiases> to filter type aliases
 			$size = ($pkga['size'] ? "size=\"{$pkga['size']}\"" : '');
 			$fieldname = $pkga['fieldname'];
+
+			if (!is_array($config['aliases'])) {
+				$config['aliases'] = array();
+			}
+			
 			$a_aliases = &$config['aliases']['alias'];
 			$addrisfirst = 0;
 			$aliasesaddr = "";

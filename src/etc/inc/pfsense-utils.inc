@@ -3,7 +3,7 @@
  * pfsense-utils.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -130,6 +130,37 @@ function get_dns_servers() {
 	return array_unique($dns_servers);
 }
 
+/****f* pfsense-utils/pfSenseHeader
+ * NAME
+ *   pfSenseHeader
+ * INPUTS
+ *   none
+ * RESULT
+ *   Javascript header change or browser Location:
+ ******/
+function pfSenseHeader($text) {
+	global $_SERVER;
+	if (isAjax()) {
+		if ($_SERVER['HTTPS'] == "on") {
+			$protocol = "https";
+		} else {
+			$protocol = "http";
+		}
+
+		$port = ":{$_SERVER['SERVER_PORT']}";
+		if ($_SERVER['SERVER_PORT'] == "80" && $protocol == "http") {
+			$port = "";
+		}
+		if ($_SERVER['SERVER_PORT'] == "443" && $protocol == "https") {
+			$port = "";
+		}
+		$complete_url = "{$protocol}://{$_SERVER['HTTP_HOST']}{$port}/{$text}";
+		echo "\ndocument.location.href = '{$complete_url}';\n";
+	} else {
+		header("Location: $text");
+	}
+}
+
 /****f* pfsense-utils/get_css_files
  * NAME
  *   get_css_files - get a list of the available CSS files (themes)
@@ -149,12 +180,16 @@ function get_css_files() {
 		$usrcss = $pfscss = $betacss = array();
 
 		foreach ($cssfiles as $css) {
-			if (strpos($css, "BETA") != 0) {
-				array_push($betacss, $css);
-			} else if (strpos($css, "pfSense") != 0) {
-				array_push($pfscss, $css);
-			} else {
-				array_push($usrcss, $css);
+			// Don't display any login/logo page related CSS files
+			if (strpos($css, "login") == 0 &&
+			    strpos($css, "logo") == 0) {
+				if (strpos($css, "BETA") != 0) {
+					array_push($betacss, $css);
+				} else if (strpos($css, "pfSense") != 0) {
+					array_push($pfscss, $css);
+				} else {
+					array_push($usrcss, $css);
+				}
 			}
 		}
 
@@ -192,6 +227,12 @@ function gen_webguicss_field(&$section, $value) {
 		$csslist
 	))->setHelp('Choose an alternative css file (if installed) to change the appearance of the webConfigurator. css files are located in /usr/local/www/css/%s', '<span id="csstxt"></span>');
 }
+function validate_webguicss_field(&$input_errors, $value) {
+	$csslist = get_css_files();
+	if (!isset($csslist[$value])) {
+		$input_errors[] = gettext("The submitted Theme could not be found. Pick a different theme.");
+	}
+}
 
 /****f* pfsense-utils/gen_webguifixedmenu_field
  * NAME
@@ -210,6 +251,12 @@ function gen_webguifixedmenu_field(&$section, $value) {
 		$value,
 		["" => gettext("Scrolls with page"), "fixed" => gettext("Fixed (Remains visible at top of page)")]
 	))->setHelp("The fixed option is intended for large screens only.");
+}
+function validate_webguifixedmenu_field(&$input_errors, $value) {
+	$valid_values = array("", "fixed");
+	if (!in_array($value, $valid_values)) {
+		$input_errors[] = gettext("The submitted Top Navigation value is invalid.");
+	}
 }
 
 /****f* pfsense-utils/gen_webguihostnamemenu_field
@@ -230,6 +277,12 @@ function gen_webguihostnamemenu_field(&$section, $value) {
 		["" => gettext("Default (No hostname)"), "hostonly" => gettext("Hostname only"), "fqdn" => gettext("Fully Qualified Domain Name")]
 	))->setHelp("Replaces the Help menu title in the Navbar with the system hostname or FQDN.");
 }
+function validate_webguihostnamemenu_field(&$input_errors, $value) {
+	$valid_values = array("", "hostonly", "fqdn");
+	if (!in_array($value, $valid_values)) {
+		$input_errors[] = gettext("The submitted Hostname in Menu value is invalid.");
+	}
+}
 
 /****f* pfsense-utils/gen_dashboardcolumns_field
  * NAME
@@ -242,7 +295,7 @@ function gen_webguihostnamemenu_field(&$section, $value) {
  ******/
 function gen_dashboardcolumns_field(&$section, $value) {
 
-	if (($value < 1) || ($value > 6)) {
+	if (((int) $value < 1) || ((int) $value > 6)) {
 		$value = 2;
 	}
 
@@ -251,8 +304,32 @@ function gen_dashboardcolumns_field(&$section, $value) {
 		'Dashboard Columns',
 		'number',
 		$value,
-		[min => 1, max => 6]
+		['min' => 1, 'max' => 6]
 	));
+}
+function validate_dashboardcolumns_field(&$input_errors, $value) {
+	if (!is_numericint($value) || ((int) $value < 1) || ((int) $value > 6)) {
+		$input_errors[] = gettext("The submitted Dashboard Columns value is invalid.");
+	}
+}
+
+/****f* pfsense-utils/gen_interfacessort_field
+ * NAME
+ *   gen_interfacessort_field
+ * INPUTS
+ *   Pointer to section object
+ *   Initial value for the field
+ * RESULT
+ *   no return value, section object is updated
+ ******/
+function gen_interfacessort_field(&$section, $value) {
+
+	$section->addInput(new Form_Checkbox(
+		'interfacessort',
+		'Interfaces Sort',
+		'Sort Alphabetically',
+		$value
+	))->setHelp('If selected, lists of interfaces will be sorted by description, otherwise they are listed wan,lan,optn...');
 }
 
 /****f* pfsense-utils/gen_associatedpanels_fields
@@ -375,6 +452,7 @@ function gen_user_settings_fields(&$section, $pconfig) {
 	gen_webguifixedmenu_field($section, $pconfig['webguifixedmenu']);
 	gen_webguihostnamemenu_field($section, $pconfig['webguihostnamemenu']);
 	gen_dashboardcolumns_field($section, $pconfig['dashboardcolumns']);
+	gen_interfacessort_field($section, $pconfig['interfacessort']);
 	gen_associatedpanels_fields(
 		$section,
 		$pconfig['dashboardavailablewidgetspanel'],
@@ -404,6 +482,54 @@ function gen_requirestatefilter_field(&$section, $value) {
 	))->setHelp('By default, the entire state table is displayed when entering '.
 		'Diagnostics > States. This option requires a filter to be entered '.
 		'before the states are displayed. Useful for systems with large state tables.');
+}
+
+/****f* pfsense-utils/gen_created_updated_fields
+ * NAME
+ *   gen_created_updated_fields
+ * INPUTS
+ *   Pointer to form object
+ *   Array of created time and username
+ *   Array of updated time and username
+ * RESULT
+ *   no return value, section object is added to form if needed
+ ******/
+function gen_created_updated_fields(&$form, $created, $updated, $tracker = 0) {
+	$has_created_time = (isset($created['time']) && isset($created['username']));
+	$has_updated_time = (isset($updated['time']) && isset($updated['username']));
+
+	if ($has_created_time || $has_updated_time) {
+		$section = new Form_Section('Rule Information');
+
+		if (!empty($tracker)) {
+			$section->addInput(new Form_StaticText(
+				'Tracking ID',
+				htmlspecialchars($tracker)
+			));
+		}
+
+		if ($has_created_time) {
+			$section->addInput(new Form_StaticText(
+				'Created',
+				htmlspecialchars(sprintf(
+					gettext('%1$s by %2$s'),
+					date(gettext("n/j/y H:i:s"), $created['time']),
+					$created['username']))
+			));
+		}
+
+		if ($has_updated_time) {
+			$section->addInput(new Form_StaticText(
+				'Updated',
+				htmlspecialchars(sprintf(
+					gettext('%1$s by %2$s'),
+					date(gettext("n/j/y H:i:s"), $updated['time']),
+					$updated['username']))
+			));
+		}
+
+		$form->add($section);
+	}
 }
 
 function hardware_offloading_applyflags($iface) {
@@ -585,7 +711,7 @@ function is_schedule_inuse($schedule) {
 function setup_microcode() {
 
 	/* if list */
-	$iflist = get_configured_interface_list(false, true);
+	$iflist = get_configured_interface_list(true);
 	foreach ($iflist as $if => $ifdescr) {
 		enable_hardware_offloading($if);
 	}
@@ -631,7 +757,7 @@ function get_carp_interface_status($carpid) {
 
 	$vhid = $vip['vhid'];
 	$carp_query = '';
-	$_gb = exec("/sbin/ifconfig $interface | /usr/bin/grep carp: | /usr/bin/grep \"vhid $vhid\"", $carp_query);
+	$_gb = exec("/sbin/ifconfig {$interface} | /usr/bin/grep \"carp:.* vhid {$vhid} \"", $carp_query);
 	foreach ($carp_query as $int) {
 		if (stripos($int, "MASTER"))
 			return "MASTER";
@@ -808,10 +934,29 @@ function restore_config_section($section_name, $new_contents) {
 	if ($section_xml === -1) {
 		return false;
 	}
+
+	/* Save current pkg repo to re-add on new config */
+	unset($pkg_repo_conf_path);
+	if ($section_name == "system" &&
+	    isset($config['system']['pkg_repo_conf_path'])) {
+		$pkg_repo_conf_path = $config['system']['pkg_repo_conf_path'];
+	}
+
 	$config[$section_name] = &$section_xml;
 	if (file_exists("{$g['tmp_path']}/config.cache")) {
 		unlink("{$g['tmp_path']}/config.cache");
 	}
+
+	/* Restore previously pkg repo configured */
+	if ($section_name == "system") {
+		if (isset($pkg_repo_conf_path)) {
+			$config['system']['pkg_repo_conf_path'] =
+			    $pkg_repo_conf_path;
+		} elseif (isset($config['system']['pkg_repo_conf_path'])) {
+			unset($config['system']['pkg_repo_conf_path']);
+		}
+	}
+
 	write_config(sprintf(gettext("Restored %s of config file (maybe from CARP partner)"), $section_name));
 	disable_security_checks();
 	return true;
@@ -1015,32 +1160,84 @@ function reload_all_sync() {
 	send_event("service restart webgui");
 }
 
-function setup_serial_port($when = "save", $path = "") {
+function load_loader_conf($loader_conf = NULL, $local = false) {
+
+	if ($loader_conf == NULL) {
+		return (NULL);
+	}
+	if (file_exists($loader_conf)) {
+		$input = file_get_contents($loader_conf);
+	} else {
+		$input = "";
+	}
+
+	$input_split = explode("\n", $input);
+
+	/*
+	 * Loop through and only add lines that are not empty and not
+	 * managed by us.
+	 */
+	$data = array();
+	/* These values should be removed from loader.conf and loader.conf.local
+	 * As they will be replaced when necessary. */
+	$remove = array("hw.usb.no_pf", "hint.mdio.0.at", "hint.e6000sw.0",
+	    "hw.e6000sw.default_disabled", "vm.pmap.pti");
+	if (!$local) {
+		/* These values should only be filtered in loader.conf, not .local */
+		$remove = array_merge($remove,
+		    array("autoboot_delay", "console", "comconsole_speed",
+		    "boot_multicons", "boot_serial", "hint.uart.0.flags",
+		    "hint.uart.1.flags"));
+	}
+	foreach ($input_split as $line) {
+		if (empty($line)) {
+			continue;
+		}
+		$skip = false;
+		list($name, $value) = explode('=', $line, 2);
+		foreach($remove as $rid => $rkey) {
+			if (strncasecmp(trim($name), $rkey, strlen($rkey)) == 0) {
+				$skip = true;
+				break;
+			}
+		}
+		if (!$skip) {
+			$data[] = $line;
+		}
+	}
+
+	return ($data);
+}
+
+function setup_loader_settings($path = "", $upgrade = false) {
 	global $g, $config;
-	$ttys_file = "{$path}/etc/ttys";
+
 	$boot_config_file = "{$path}/boot.config";
 	$loader_conf_file = "{$path}/boot/loader.conf";
-	/* serial console - write out /boot.config */
+
+	$serialspeed = (is_numeric($config['system']['serialspeed'])) ? $config['system']['serialspeed'] : "115200";
+
+	$vga_only = false;
+	$hdmi_only = false;
+	$serial_only = false;
+	$specific_platform = system_identify_specific_platform();
+	if ($specific_platform['name'] == 'XG-1540') {
+		$vga_only = true;
+	} elseif ($specific_platform['name'] == 'Turbot Dual-E') {
+		$hdmi_only = true;
+	} elseif ($specific_platform['name'] == 'RCC-VE' ||
+	    $specific_platform['name'] == 'RCC' ||
+	    $specific_platform['name'] == 'SG-2220' ||
+	    $specific_platform['name'] == 'apu2') {
+		$serial_only = true;
+	}
+
+	/* Serial console - write out /boot.config */
 	if (file_exists($boot_config_file)) {
 		$boot_config = file_get_contents($boot_config_file);
 	} else {
 		$boot_config = "";
 	}
-
-	$serialspeed = (is_numeric($config['system']['serialspeed'])) ? $config['system']['serialspeed'] : "115200";
-	$serial_only = false;
-	$vga_only = false;
-
-	$specific_platform = system_identify_specific_platform();
-	if ($specific_platform['name'] == 'XG-1540') {
-		$vga_only = true;
-	} elseif ($specific_platform['name'] == 'RCC-VE' ||
-	    $specific_platform['name'] == 'RCC' ||
-	    $specific_platform['name'] == 'RCC-DFF' ||
-	    $specific_platform['name'] == 'apu2') {
-		$serial_only = true;
-	}
-
 	$boot_config_split = explode("\n", $boot_config);
 	$data = array();
 	foreach ($boot_config_split as $bcs) {
@@ -1061,35 +1258,18 @@ function setup_serial_port($when = "save", $path = "") {
 	} else {
 		safe_write_file($boot_config_file, $data);
 	}
+	unset($data, $boot_config, $boot_config_file, $boot_config_split);
 
-	unset($boot_config, $boot_config_file, $boot_config_split);
-
-	/* serial console - write out /boot/loader.conf */
-	if ($when == "upgrade") {
+	/* Serial console - write out /boot/loader.conf */
+	if ($upgrade) {
 		system("echo \"Reading {$loader_conf_file}...\" >> /conf/upgrade_log.txt");
 	}
 
-	$loader_conf = file_get_contents($loader_conf_file);
-	$loader_conf_split = explode("\n", $loader_conf);
-
-	$data = array();
-	// Loop through and only add lines that are not empty, and which
-	//  do not contain a console directive.
-	foreach ($loader_conf_split as $bcs) {
-		if (!empty($bcs) &&
-		    (stripos($bcs, "console") === false) &&
-		    (stripos($bcs, "boot_multicons") === false) &&
-		    (stripos($bcs, "boot_serial") === false) &&
-		    (stripos($bcs, "hw.usb.no_pf") === false) &&
-		    (stripos($bcs, "hint.uart.0.flags") === false) &&
-		    (stripos($bcs, "hint.uart.1.flags") === false)) {
-			$data[] = $bcs;
-		}
-	}
-
+	$data = load_loader_conf($loader_conf_file, false);
 	if ($serial_only === true) {
 		$data[] = 'boot_serial="YES"';
 		$data[] = 'console="comconsole"';
+		$data[] = 'comconsole_speed="' . $serialspeed . '"';
 	} elseif ($vga_only === true) {
 		$data[] = 'console="vidconsole"';
 	} elseif (is_serial_enabled()) {
@@ -1106,21 +1286,41 @@ function setup_serial_port($when = "save", $path = "") {
 			default:
 				$data[] = 'console="comconsole,vidconsole"';
 		}
+		$data[] = 'comconsole_speed="' . $serialspeed . '"';
 	}
-	$data[] = 'comconsole_speed="' . $serialspeed . '"';
 
 	if ($specific_platform['name'] == 'RCC-VE' ||
 	    $specific_platform['name'] == 'RCC' ||
-	    $specific_platform['name'] == 'RCC-DFF') {
+	    $specific_platform['name'] == 'SG-2220') {
 		$data[] = 'comconsole_port="0x2F8"';
 		$data[] = 'hint.uart.0.flags="0x00"';
 		$data[] = 'hint.uart.1.flags="0x10"';
 	}
+	$data[] = 'autoboot_delay="3"';
 	$data[] = 'hw.usb.no_pf="1"';
+	if (isset($config['system']['pti_disabled'])) {
+		$data[] = 'vm.pmap.pti="0"';
+	}
 
 	safe_write_file($loader_conf_file, $data);
 
-	unset($loader_conf, $loader_conf_split, $loader_config_file);
+	/* Filter loader.conf.local to avoid duplicate settings. */
+	$loader_conf_file = "{$path}/boot/loader.conf.local";
+	$data = load_loader_conf($loader_conf_file, true);
+	if (empty($data)) {
+		@unlink($loader_conf_file);
+	} else {
+		safe_write_file($loader_conf_file, $data);
+	}
+
+}
+
+function setup_serial_port($when = "save", $path = "") {
+	global $config;
+	$ttys_file = "{$path}/etc/ttys";
+
+	/* Update the loader settings. */
+	setup_loader_settings($path, ($when == "upgrade"));
 
 	$ttys = file_get_contents($ttys_file);
 	$ttys_split = explode("\n", $ttys);
@@ -1389,6 +1589,7 @@ function get_interface_info($ifdescr) {
 		return;
 	}
 	$ifinfo['hwif'] = $config['interfaces'][$ifdescr]['if'];
+	$ifinfo['enable'] = isset($config['interfaces'][$ifdescr]['enable']);
 	$ifinfo['if'] = get_real_interface($ifdescr);
 
 	$chkif = $ifinfo['if'];
@@ -1777,13 +1978,16 @@ function load_crypto() {
 	global $config, $g;
 	$crypto_modules = array('aesni', 'cryptodev');
 
-	if (!in_array($config['system']['crypto_hardware'], $crypto_modules)) {
-		return false;
-	}
+	$enabled_modules = explode('_', $config['system']['crypto_hardware']);
 
-	if (!empty($config['system']['crypto_hardware']) && !is_module_loaded($config['system']['crypto_hardware'])) {
-		log_error(sprintf(gettext("Loading %s cryptographic accelerator module."), $config['system']['crypto_hardware']));
-		mwexec("/sbin/kldload {$config['system']['crypto_hardware']}");
+	foreach ($enabled_modules as $enmod) {
+		if (empty($enmod) || !in_array($enmod, $crypto_modules)) {
+			continue;
+		}
+		if (!is_module_loaded($enmod)) {
+			log_error(sprintf(gettext("Loading %s cryptographic accelerator module."), $enmod));
+			mwexec("/sbin/kldload " . escapeshellarg($enmod));
+		}
 	}
 }
 
@@ -1852,8 +2056,8 @@ function download_file($url, $destination, $verify_ssl = true, $connect_timeout 
 	curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
 	curl_setopt($ch, CURLOPT_HEADER, false);
 	curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-	if (!isset($config['system']['do_not_send_host_uuid'])) {
-		curl_setopt($ch, CURLOPT_USERAGENT, $g['product_name'] . '/' . $g['product_version'] . ' : ' . get_single_sysctl('kern.hostuuid'));
+	if (!isset($config['system']['do_not_send_uniqueid'])) {
+		curl_setopt($ch, CURLOPT_USERAGENT, $g['product_name'] . '/' . $g['product_version'] . ':' . system_get_uniqueid());
 	} else {
 		curl_setopt($ch, CURLOPT_USERAGENT, $g['product_name'] . '/' . $g['product_version']);
 	}
@@ -1908,8 +2112,8 @@ function download_file_with_progress_bar($url, $destination, $verify_ssl = true,
 	curl_setopt($ch, CURLOPT_NOPROGRESS, '1');
 	curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $connect_timeout);
 	curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
-	if (!isset($config['system']['do_not_send_host_uuid'])) {
-		curl_setopt($ch, CURLOPT_USERAGENT, $g['product_name'] . '/' . $g['product_version'] . ' : ' . get_single_sysctl('kern.hostuuid'));
+	if (!isset($config['system']['do_not_send_uniqueid'])) {
+		curl_setopt($ch, CURLOPT_USERAGENT, $g['product_name'] . '/' . $g['product_version'] . ':' . system_get_uniqueid());
 	} else {
 		curl_setopt($ch, CURLOPT_USERAGENT, $g['product_name'] . '/' . $g['product_version']);
 	}
@@ -2056,6 +2260,37 @@ function update_progress_bar($percent, $first_time) {
 		}
 		echo sprintf("%4d%%", $percent);
 	}
+}
+
+function update_alias_name($new_alias_name, $orig_alias_name) {
+	if (!$orig_alias_name) {
+		return;
+	}
+
+	// Firewall rules
+	update_alias_names_upon_change(array('filter', 'rule'), array('source', 'address'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('filter', 'rule'), array('destination', 'address'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('filter', 'rule'), array('source', 'port'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('filter', 'rule'), array('destination', 'port'), $new_alias_name, $orig_alias_name);
+	// NAT Rules
+	update_alias_names_upon_change(array('nat', 'rule'), array('source', 'address'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'rule'), array('source', 'port'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'rule'), array('destination', 'address'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'rule'), array('destination', 'port'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'rule'), array('target'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'rule'), array('local-port'), $new_alias_name, $orig_alias_name);
+	// NAT 1:1 Rules
+	//update_alias_names_upon_change(array('nat', 'onetoone'), array('external'), $new_alias_name, $orig_alias_name);
+	//update_alias_names_upon_change(array('nat', 'onetoone'), array('source', 'address'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'onetoone'), array('destination', 'address'), $new_alias_name, $orig_alias_name);
+	// NAT Outbound Rules
+	update_alias_names_upon_change(array('nat', 'outbound', 'rule'), array('source', 'network'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'outbound', 'rule'), array('sourceport'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'outbound', 'rule'), array('destination', 'address'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'outbound', 'rule'), array('dstport'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'outbound', 'rule'), array('target'), $new_alias_name, $orig_alias_name);
+	// Alias in an alias
+	update_alias_names_upon_change(array('aliases', 'alias'), array('address'), $new_alias_name, $orig_alias_name);
 }
 
 function update_alias_names_upon_change($section, $field, $new_alias_name, $origname) {
@@ -2559,8 +2794,12 @@ function get_country_name($country_code) {
 function filter_rules_sort() {
 	global $config;
 
+	init_config_arr(array('filter', 'rule'));
 	/* mark each rule with the sequence number (to retain the order while sorting) */
 	for ($i = 0; isset($config['filter']['rule'][$i]); $i++) {
+		if (!is_array($config['filter']['rule'][$i])) {
+			$config['filter']['rule'][$i] = array();
+		}
 		$config['filter']['rule'][$i]['seq'] = $i;
 	}
 
@@ -2811,17 +3050,27 @@ function set_language() {
 
 function get_locale_list() {
 	$locales = array(
-		"en_US" => gettext("English"),
-		"es" => gettext("Spanish"),
-		"pt_BR" => gettext("Portuguese (Brazil)"),
-		"tr" => gettext("Turkish"),
+		"bs" => gettext("Bosnian"),
+		"zh_CN" => gettext("Chinese"),
 		"zh_Hans_CN" => gettext("Chinese (Simplified, China)"),
+		"zh_HK" => gettext("Chinese (Hong Kong)"),
 		"zh_TW" => gettext("Chinese (Taiwan)"),
+		"nl" => gettext("Dutch"),
+		"en_US" => gettext("English"),
+		"fr" => gettext("French"),
+		"de_DE" => gettext("German (Germany)"),
+		"nb" => gettext("Norwegian Bokmål"),
+		"pl" => gettext("Polish"),
+		"pt_PT" => gettext("Portuguese"),
+		"pt_BR" => gettext("Portuguese (Brazil)"),
+		"ru" => gettext("Russian"),
+		"es" => gettext("Spanish"),
+		"es_AR" => gettext("Spanish (Argentina)"),
 	);
 
 	// If the locales are sorted, the order changes depending on the language selected. If the user accidentally
 	// selects the wrong language, this makes it very difficult to guess the intended language. NOT sorting
-	// allows the user to remember that English (say) is the second on the list and to get back to it more easily
+	// allows the user to remember that English (say) is the seventh on the list and to get back to it more easily
 
 	//asort($locales);
 
@@ -2889,7 +3138,7 @@ function calculate_ipv6_delegation_length($if) {
 		case "6rd":
 			$rd6cfg = $config['interfaces'][$if];
 			$rd6plen = explode("/", $rd6cfg['prefix-6rd']);
-			$pdlen = (64 - ($rd6plen[1] + (32 - $rd6cfg['prefix-6rd-v4plen'])));
+			$pdlen = (64 - ((int) $rd6plen[1] + (32 - (int) $rd6cfg['prefix-6rd-v4plen'])));
 			break;
 		case "dhcp6":
 			$dhcp6cfg = $config['interfaces'][$if];
@@ -3134,19 +3383,15 @@ function pkg_call_plugins($plugin_type, $plugin_params) {
 		return $results;
 	}
 	foreach ($config['installedpackages']['package'] as $package) {
-		if (!file_exists("/usr/local/pkg/" . $package['configurationfile'])) {
-			continue;
-		}
-		$pkg_config = parse_xml_config_pkg("/usr/local/pkg/" . $package['configurationfile'], 'packagegui');
-		$pkgname = substr(reverse_strrchr($package['configurationfile'], "."), 0, -1);
-		if (is_array($pkg_config['plugins']['item'])) {
-			foreach ($pkg_config['plugins']['item'] as $plugin) {
+		if (is_array($package['plugins']['item'])) {
+			foreach ($package['plugins']['item'] as $plugin) {
 				if ($plugin['type'] == $plugin_type) {
-					if (file_exists($pkg_config['include_file'])) {
-						require_once($pkg_config['include_file']);
+					if (file_exists($package['include_file'])) {
+						require_once($package['include_file']);
 					} else {
 						continue;
 					}
+					$pkgname = substr(reverse_strrchr($package['configurationfile'], "."), 0, -1);
 					$plugin_function = $pkgname . '_'. $plugin_type;
 					$results[$pkgname] = call_user_func($plugin_function, $plugin_params);
 				}
@@ -3164,4 +3409,40 @@ function addrtolower($ip) {
 		return($ip);
 	}
 }
+
+function compare_by_name($a, $b) {
+	return strcasecmp($a['name'], $b['name']);
+}
+
+/****f* pfsense-utils/getarraybyref
+ * NAME
+ *   getarraybyref
+ * INPUTS
+ *   $array the array of which a items array needs to be found. 
+ *   $args.. the sub-items to be retrieved/created
+ * RESULT
+ *   returns the array that was retrieved from configuration, its created if it does not exist
+ * NOTES
+ *   Used by haproxy / acme / others.?. . 
+ *   can be used like this:  $a_certificates = getarraybyref($config, 'installedpackages', 'acme', 'certificates', 'item');
+ ******/
+function &getarraybyref(&$array) {
+	if (!isset($array)) {
+		return false;
+	}
+	if (!is_array($array)) {
+		$array = array();
+	}
+	$item = &$array;
+	$arg = func_get_args();
+	for($i = 1; $i < count($arg); $i++) {
+		$itemindex = $arg[$i];
+		if (!is_array($item[$itemindex])) {
+			$item[$itemindex] = array();
+		}
+		$item = &$item[$itemindex];
+	}
+	return $item;
+}
+
 ?>

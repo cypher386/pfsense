@@ -3,7 +3,7 @@
  * ipsec.widget.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2004-2005 T. Lechat <dev@lechat.org> (BSD 2 clause)
  * Copyright (c) 2007 Jonathan Watt <jwatt@jwatt.org> (BSD 2 clause)
  * Copyright (c) 2007 Scott Dale (BSD 2 clause)
@@ -26,16 +26,14 @@
  * limitations under the License.
  */
 
-$nocsrf = true;
-
-require_once("guiconfig.inc");
+require_once("auth_check.inc");
 require_once("functions.inc");
 require_once("ipsec.inc");
 
 // Compose the table contents and pass it back to the ajax caller
 if ($_REQUEST && $_REQUEST['ajax']) {
 
-	if (isset($config['ipsec']['phase1'])) {
+	if (isset($config['ipsec']['phase1']) && is_array($config['ipsec']['phase1'])) {
 		$spd = ipsec_dump_spd();
 		$sad = ipsec_dump_sad();
 		$mobile = ipsec_dump_mobile();
@@ -46,7 +44,8 @@ if ($_REQUEST && $_REQUEST['ajax']) {
 
 		$ipsec_detail_array = array();
 		$ikenum = array();
-		if (isset($config['ipsec']['phase2'])) {
+
+		if (isset($config['ipsec']['phase2']) && is_array($config['ipsec']['phase2'])) {
 			foreach ($config['ipsec']['phase2'] as $ph2ent) {
 				if (!ipsec_lookup_phase1($ph2ent,$ph1ent)) {
 					continue;
@@ -60,7 +59,7 @@ if ($_REQUEST && $_REQUEST['ajax']) {
 					continue;
 				}
 
-				if (empty($ph1ent['iketype']) || $ph1ent['iketype'] == 'ikev1') {
+				if (empty($ph1ent['iketype']) || $ph1ent['iketype'] == 'ikev1' || isset($ph1ent['splitconn'])) {
 					if (!isset($ikenum[$ph1ent['ikeid']])) {
 						$ikenum[$ph1ent['ikeid']] = 0;
 					} else {
@@ -73,34 +72,37 @@ if ($_REQUEST && $_REQUEST['ajax']) {
 						continue;
 					}
 
-					$ikeid = "con{$ph1ent['ikeid']}";
+					$ikeid = "con{$ph1ent['ikeid']}000";
 					$ikenum[$ph1ent['ikeid']] = true;
 				}
 
 				$found = false;
-				foreach ($ipsec_status as $id => $ikesa) {
-					if (isset($ikesa['child-sas'])) {
-						foreach ($ikesa['child-sas'] as $childid => $childsa) {
-							if ($ikeid == $childid) {
-								$found = true;
-								break;
+				if(is_array($ipsec_status) && !empty($ipsec_status)){
+					foreach ($ipsec_status as $id => $ikesa) {
+						if (isset($ikesa['child-sas'])) {
+							foreach ($ikesa['child-sas'] as $childid => $childsa) {
+								list($childcid, $childsid) = explode('-', $childid, 2);
+								if ($ikeid == $childcid) {
+									$found = true;
+									break;
+								}
 							}
+						} else if ($ikeid == $ikesa['con-id']) {
+							$found = true;
 						}
-					} else if ($ikeid == $id) {
-						$found = true;
-					}
 
-					if ($found === true) {
-						if ($ikesa['state'] == 'ESTABLISHED') {
-							/* tunnel is up */
-							$iconfn = "true";
-							$activecounter++;
-						} else {
-							/* tunnel is down */
-							$iconfn = "false";
-							$inactivecounter++;
+						if ($found === true) {
+							if ($ikesa['state'] == 'ESTABLISHED') {
+								/* tunnel is up */
+								$iconfn = "true";
+								$activecounter++;
+							} else {
+								/* tunnel is down */
+								$iconfn = "false";
+								$inactivecounter++;
+							}
+							break;
 						}
-						break;
 					}
 				}
 
@@ -120,53 +122,59 @@ if ($_REQUEST && $_REQUEST['ajax']) {
 		unset($ikenum);
 	}
 
-	// Only generate the data for the tab that is currently being viewed
-	switch ($_REQUEST['tab']) {
-		case "Overview" :
-			print("	<tr>\n");
-			print(		"<td>" . $activecounter . "</td>\n");
-			print(		"<td>" . $inactivecounter . "</td>\n");
-			print(		"<td>" . (is_array($mobile['pool']) ? htmlspecialchars($mobile['pool'][0]['usage']) : '0') . "</td>\n");
-			print(	"</tr>\n");
-		break;
+	// Generate JSON formatted data for the widget to update from
+	$jsondata = "{";
 
-		case "tunnel" :
-			foreach ($ipsec_detail_array as $ipsec) {
-				print("	<tr>\n");
-				print(		"<td>" . htmlspecialchars($ipsec['src']) . "</td>\n");
-				print(		"<td>" . $ipsec['remote-subnet'] . "<br />(" . htmlspecialchars($ipsec['dest']) . ")</td>\n");
-				print(		"<td>" . htmlspecialchars($ipsec['descr']) . "</td>\n");
+	$jsondata .= "\"overview\":\"";
+	$jsondata .= "<tr>";
+	$jsondata .= "<td>" . $activecounter . "</td>";
+	$jsondata .= "<td>" . $inactivecounter . "</td>";
+	$jsondata .= "<td>" . (is_array($mobile['pool']) ? htmlspecialchars($mobile['pool'][0]['usage']) : '0') . "</td>";
+	$jsondata .= "</tr>";
+	$jsondata .= "\",\n";
 
-				if ($ipsec['status'] == "true") {
-					print('<td><i class="fa fa-arrow-up text-success"></i></td>' . "\n");
-				} else {
-					print('<td><i class="fa fa-arrow-down text-danger"></i></td>' . "\n");
-				}
+	$jsondata .= "\"tunnel\":\"";
+	if(is_array($ipsec_detail_array) && !empty($ipsec_detail_array)){
+		foreach ($ipsec_detail_array as $ipsec) {
+			$jsondata .= "<tr>";
+			$jsondata .= "<td>" . htmlspecialchars($ipsec['src']) . "</td>";
+			$jsondata .= "<td>" . $ipsec['remote-subnet'] . "<br />(" . htmlspecialchars($ipsec['dest']) . ")</td>";
+			$jsondata .= "<td>" . htmlspecialchars($ipsec['descr']) . "</td>";
 
-				print(	"</tr>\n");
+			if ($ipsec['status'] == "true") {
+				$jsondata .= '<td><i class=\"fa fa-arrow-up text-success\"></i></td>';
+			} else {
+				$jsondata .= '<td><i class=\"fa fa-arrow-down text-danger\"></i></td>';
 			}
-		break;
 
-		case "mobile" :
-			if (!is_array($mobile['pool'])) {
-				break;
-			}
-			foreach ($mobile['pool'] as $pool) {
-				if (!is_array($pool['lease'])) {
-					continue;
-				}
-
-				foreach ($pool['lease'] as $muser) {
-					print("	<tr>\n");
-					print(		"<td>" . htmlspecialchars($muser['id']) . "</td>\n");
-					print(		"<td>" . htmlspecialchars($muser['host']) . "</td>\n");
-					print(		"<td>" . htmlspecialchars($muser['status']) . "</td>\n");
-					print("	</tr>\n");
-				}
-			}
-		break;
+			$jsondata .= "</tr>";
+		}
 	}
 
+	$jsondata .= "\",\n";
+
+
+	$jsondata .= "\"mobile\":\"";
+
+	if (is_array($mobile['pool'])) {
+		foreach ($mobile['pool'] as $pool) {
+			if (!is_array($pool['lease'])) {
+				continue;
+			}
+			if(is_array($pool['lease']) && !empty($pool['lease'])){
+				foreach ($pool['lease'] as $muser) {
+					$jsondata .= "<tr>";
+					$jsondata .= "<td>" . htmlspecialchars($muser['id']) . "</td>";
+					$jsondata .= "<td>" . htmlspecialchars($muser['host']) . "</td>";
+					$jsondata .= "<td>" . htmlspecialchars($muser['status']) . "</td>";
+					$jsondata .= "</tr>";
+				}
+			}
+		}
+	}
+
+	$jsondata .= "\"}";
+	print($jsondata);
 	exit;
 }
 
@@ -174,9 +182,9 @@ $widgetkey_nodash = str_replace("-", "", $widgetkey);
 
 if (isset($config['ipsec']['phase1'])) {
 	$tab_array = array();
-	$tab_array[] = array(gettext("Overview"), true, $widgetkey_nodash . "-Overview");
-	$tab_array[] = array(gettext("Tunnels"), false, $widgetkey_nodash . "-tunnel");
-	$tab_array[] = array(gettext("Mobile"), false, $widgetkey_nodash . "-mobile");
+	$tab_array[] = array(gettext("Overview"), true, htmlspecialchars($widgetkey_nodash) . "-Overview");
+	$tab_array[] = array(gettext("Tunnels"), false, htmlspecialchars($widgetkey_nodash) . "-tunnel");
+	$tab_array[] = array(gettext("Mobile"), false, htmlspecialchars($widgetkey_nodash) . "-mobile");
 
 	display_widget_tabs($tab_array);
 }
@@ -185,7 +193,7 @@ $mobile = ipsec_dump_mobile();
 $widgetperiod = isset($config['widgets']['period']) ? $config['widgets']['period'] * 1000 : 10000;
 
 if (isset($config['ipsec']['phase2'])): ?>
-<div id="<?=$widgetkey_nodash?>-Overview" style="display:block;"  class="table-responsive">
+<div id="<?=htmlspecialchars($widgetkey_nodash)?>-Overview" style="display:block;"  class="table-responsive">
 	<table class="table table-striped table-hover">
 		<thead>
 		<tr>
@@ -199,7 +207,7 @@ if (isset($config['ipsec']['phase2'])): ?>
 		</tbody>
 	</table>
 </div>
-<div class="table-responsive" id="<?=$widgetkey_nodash?>-tunnel" style="display:none;">
+<div class="table-responsive" id="<?=htmlspecialchars($widgetkey_nodash)?>-tunnel" style="display:none;">
 	<table class="table table-striped table-hover">
 	<thead>
 	<tr>
@@ -215,9 +223,9 @@ if (isset($config['ipsec']['phase2'])): ?>
 	</table>
 </div>
 
-	<?php if (is_array($mobile['pool'])): ?>
-<div id="<?=$widgetkey_nodash?>-mobile" style="display:none;" class="table-responsive">
+	<div id="<?=htmlspecialchars($widgetkey_nodash)?>-mobile" style="display:none;" class="table-responsive">
 		<table class="table table-striped table-hover">
+<?php if (is_array($mobile['pool'])): ?>
 		<thead>
 		<tr>
 			<th><?=gettext("User")?></th>
@@ -228,9 +236,16 @@ if (isset($config['ipsec']['phase2'])): ?>
 		<tbody>
 			<tr><td colspan="3"><?=gettext("Retrieving mobile data ")?><i class="fa fa-cog fa-spin"></i></td></tr>
 		</tbody>
+<?php else:?>
+		<thead>
+			<tr>
+				<th colspan="3" class="text-danger"><?=gettext("No mobile tunnels have been configured")?></th>
+			</tr>
+		</thead>
+<?php endif;?>
 		</table>
 	</div>
-	<?php endif;?>
+
 <?php else: ?>
 	<div>
 		<h5 style="padding-left:10px;"><?=gettext("There are no configured IPsec Tunnels")?></h5>
@@ -238,9 +253,6 @@ if (isset($config['ipsec']['phase2'])): ?>
 	</div>
 <?php endif;
 
-// This function was in index.php It seems that the ipsec widget is the only place it is used
-// so now it lives here. It wouldn't hurt to update this function and the tab display, but it
-// looks OK for now. The display_widget_tabs() function in guiconfig.inc would need to be updated to match
 ?>
 <script type="text/javascript">
 //<![CDATA[
@@ -290,32 +302,39 @@ function changeTabDIV(selectedDiv) {
 	}
 }
 
-function get_ipsec_stats_<?=$widgetkey_nodash?>() {
-	var ajaxRequest;
-
-	ajaxRequest = $.ajax({
-			url: "/widgets/widgets/ipsec.widget.php",
-			type: "post",
-			data: {
-					ajax: "ajax",
-					tab:  curtab
-				  }
-		});
-
-	// Deal with the results of the above ajax call
-	ajaxRequest.done(function (response, textStatus, jqXHR) {
-
-		$('tbody', '#<?=$widgetkey_nodash?>-' + curtab).html(response);
-
-		// and do it again
-		setTimeout(get_ipsec_stats_<?=$widgetkey_nodash?>, "<?=$widgetperiod?>");
-	});
-}
-
 events.push(function(){
-	// Start polling for updates some small random number of seconds from now (so that all the widgets don't
-	// hit the server at exactly the same time)
-	setTimeout(get_ipsec_stats_<?=$widgetkey_nodash?>, Math.floor((Math.random() * 10000) + 1000));
+	// --------------------- Centralized widget refresh system ------------------------------
+
+	// Callback function called by refresh system when data is retrieved
+	function ipsec_callback(s) {
+		try{
+			var obj = JSON.parse(s);
+
+			$('tbody', '#<?= htmlspecialchars($widgetkey_nodash) ?>-Overview').html(obj.overview);
+			$('tbody', '#<?= htmlspecialchars($widgetkey_nodash) ?>-tunnel').html(obj.tunnel);
+			$('tbody', '#<?= htmlspecialchars($widgetkey_nodash) ?>-mobile').html(obj.mobile);
+		}catch(e){
+
+		}
+	}
+
+	// POST data to send via AJAX
+	var postdata = {
+		ajax: "ajax"
+	 };
+
+	// Create an object defining the widget refresh AJAX call
+	var ipsecObject = new Object();
+	ipsecObject.name = "IPsec";
+	ipsecObject.url = "/widgets/widgets/ipsec.widget.php";
+	ipsecObject.callback = ipsec_callback;
+	ipsecObject.parms = postdata;
+	ipsecObject.freq = 1;
+
+	// Register the AJAX object
+	register_ajax(ipsecObject);
+
+	// ---------------------------------------------------------------------------------------------------
 });
 //]]>
 </script>

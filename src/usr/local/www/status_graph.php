@@ -3,7 +3,7 @@
  * status_graph.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -36,6 +36,9 @@
 require_once("guiconfig.inc");
 require_once("ipsec.inc");
 
+if (is_array($config["traffic_graphs"])){
+	$pconfig = $config["traffic_graphs"];
+}
 // Get configured interface list
 $ifdescrs = get_configured_interface_with_descr();
 if (ipsec_enabled()) {
@@ -52,8 +55,11 @@ foreach (array('server', 'client') as $mode) {
 	}
 }
 
-if ($_REQUEST['if']) {
-	$curif = $_REQUEST['if'];
+$ifdescrs = array_merge($ifdescrs, interface_ipsec_vti_list_all());
+
+if (!empty($_POST)) {
+	// update view if settings are changed or saved
+	$curif = $_POST['if'];
 	$found = false;
 	foreach ($ifdescrs as $descr => $ifdescr) {
 		if ($descr == $curif) {
@@ -65,34 +71,53 @@ if ($_REQUEST['if']) {
 		header("Location: status_graph.php");
 		exit;
 	}
-} else {
-	if (empty($ifdescrs["wan"])) {
-		/* Handle the case when WAN has been disabled. Use the first key in ifdescrs. */
-		reset($ifdescrs);
-		$curif = key($ifdescrs);
-	} else {
-		$curif = "wan";
+	$cursort = $_POST['sort'];
+	$curfilter = $_POST['filter'];
+	$curhostipformat = $_POST['hostipformat'];
+	$curbackgroundupdate = $_POST['backgroundupdate'];
+	$curinvert = $_POST['invert'];
+	$cursmoothing = $_POST['smoothfactor'];
+
+	// Save data to config
+	if (isset($_POST['save'])) {
+		$pconfig = array();
+		$pconfig["if"] = $curif;
+		$pconfig["sort"] = $cursort;
+		$pconfig["filter"] = $curfilter;
+		$pconfig["hostipformat"] = $curhostipformat;
+		$pconfig["backgroundupdate"] = $curbackgroundupdate;
+		$pconfig["smoothfactor"] = $cursmoothing;
+		$pconfig["invert"] = $curinvert;
+		$config["traffic_graphs"] = array();
+		$config["traffic_graphs"] = $pconfig;
+		write_config("Traffic Graphs settings updated");
 	}
-}
-if ($_REQUEST['sort']) {
-	$cursort = $_REQUEST['sort'];
 } else {
-	$cursort = "";
-}
-if ($_REQUEST['filter']) {
-	$curfilter = $_REQUEST['filter'];
-} else {
-	$curfilter = "";
-}
-if ($_REQUEST['hostipformat']) {
-	$curhostipformat = $_REQUEST['hostipformat'];
-} else {
-	$curhostipformat = "";
-}
-if ($_REQUEST['backgroundupdate']) {
-	$curbackgroundupdate = $_REQUEST['backgroundupdate'];
-} else {
-	$curbackgroundupdate = "";
+	// default settings from config
+	if (is_array($pconfig)) {
+		$curif = $pconfig['if'];
+		$cursort = $pconfig['sort'];
+		$curfilter = $pconfig['filter'];
+		$curhostipformat = $pconfig['hostipformat'];
+		$curbackgroundupdate = $pconfig['backgroundupdate'];
+		$cursmoothing = $pconfig['smoothfactor'];
+		$curinvert = $pconfig['invert'];
+	} else {
+		// initialize when no config details are present
+		if (empty($ifdescrs["wan"])) {
+			/* Handle the case when WAN has been disabled. Use the first key in ifdescrs. */
+			reset($ifdescrs);
+			$curif = key($ifdescrs);
+		} else {
+			$curif = "wan";
+		}
+		$cursort = "";
+		$curfilter = "";
+		$curhostipformat = "";
+		$curbackgroundupdate = "";
+		$cursmoothing = 0;
+		$curinvert = "";
+	}
 }
 
 function iflist() {
@@ -111,12 +136,12 @@ $pgtitle = array(gettext("Status"), gettext("Traffic Graph"));
 
 include("head.inc");
 
-$form = new Form(false);
+$form = new Form();
 $form->addClass('auto-submit');
 
 $section = new Form_Section('Graph Settings');
 
-$group = new Form_Group('');
+$group = new Form_Group('Traffic Graph');
 
 $group->add(new Form_Select(
 	'if',
@@ -158,7 +183,11 @@ $group->add(new Form_Select(
 	)
 ))->setHelp('Display');
 
-$group->add(new Form_Select(
+$section->add($group);
+
+$group2 = new Form_Group('Controls');
+
+$group2->add(new Form_Select(
 	'backgroundupdate',
 	null,
 	$curbackgroundupdate,
@@ -168,115 +197,67 @@ $group->add(new Form_Select(
 	)
 ))->setHelp('Background updates');
 
-$section->add($group);
+$group2->add(new Form_Select(
+	'invert',
+	null,
+	$curinvert,
+	array (
+		'true'	=> gettext('On'),
+		'false'	=> gettext('Off'),
+	)
+))->setHelp('Invert in/out');
+
+$group2->add(new Form_Input(
+	'smoothfactor',
+	null,
+	'range',
+	$cursmoothing,
+	array (
+		'min' => 0,
+		'max' => 5,
+		'step' => 1
+		)
+
+))->setHelp('Graph Smoothing');
+
+$section->add($group2);
 
 $form->add($section);
 print $form;
 
+$realif = get_real_interface($curif);
 ?>
 
-<script src="/vendor/d3/d3.min.js"></script>
-<script src="/vendor/nvd3/nv.d3.js"></script>
-<script src="/vendor/visibility/visibility-1.2.3.min.js"></script>
+<script src="/vendor/d3/d3.min.js?v=<?=filemtime('/usr/local/www/vendor/d3/d3.min.js')?>"></script>
+<script src="/vendor/nvd3/nv.d3.js?v=<?=filemtime('/usr/local/www/vendor/nvd3/nv.d3.js')?>"></script>
+<script src="/vendor/visibility/visibility-1.2.3.min.js?v=<?=filemtime('/usr/local/www/vendor/visibility/visibility-1.2.3.min.js')?>"></script>
 
 <link href="/vendor/nvd3/nv.d3.css" media="screen, projection" rel="stylesheet" type="text/css">
 
 <script type="text/javascript">
 
+
 //<![CDATA[
 events.push(function() {
 
 	var InterfaceString = "<?=$curif?>";
+	var RealInterfaceString = "<?=$realif?>";
+    window.graph_backgroundupdate = $('#backgroundupdate').val() === "true";
+	window.smoothing = $('#smoothfactor').val();
+	window.interval = 1;
+	window.invert = $('#invert').val() === "true";
+	window.size = 8;
+	window.interfaces = InterfaceString.split("|").filter(function(entry) { return entry.trim() != ''; });
+	window.realinterfaces = RealInterfaceString.split("|").filter(function(entry) { return entry.trim() != ''; });
 
-	//store saved settings in a fresh localstorage
-	localStorage.clear();
-	localStorage.setItem('interval', 1);
-	localStorage.setItem('invert', "true");
-	localStorage.setItem('size', 1);
-	window.interfaces = InterfaceString.split("|");
-	window.charts = {};
-    window.myData = {};
-    window.updateIds = 0;
-    window.updateTimerIds = 0;
-    window.latest = [];
-    var refreshInterval = localStorage.getItem('interval');
-
-    //TODO make it fall on a second value so it increments better
-    var now = then = new Date(Date.now());
-
-    var nowTime = now.getTime();
-
-	$.each( window.interfaces, function( key, value ) {
-
-		myData[value] = [];
-		updateIds = 0;
-		updateTimerIds = 0;
-
-		var itemIn = new Object();
-		var itemOut = new Object();
-
-		itemIn.key = value + " (in)";
-		if(localStorage.getItem('invert') === "true") { itemIn.area = true; }
-		itemIn.first = true;
-		itemIn.values = [{x: nowTime, y: 0}];
-		myData[value].push(itemIn);
-
-		itemOut.key = value + " (out)";
-		if(localStorage.getItem('invert') === "true") { itemOut.area = true; }
-		itemOut.first = true;
-		itemOut.values = [{x: nowTime, y: 0}];
-		myData[value].push(itemOut);
-
-	});
-
-    var backgroundupdate = $('#backgroundupdate').val() === "true";
-	draw_graph(refreshInterval, then, backgroundupdate);
-
-	//re-draw graph when the page goes from inactive (in it's window) to active
-	Visibility.change(function (e, state) {
-		if($('#backgroundupdate').val() === "true"){
-			return;
-		}
-		if(state === "visible") {
-
-			now = then = new Date(Date.now());
-
-			var nowTime = now.getTime();
-
-			$.each( window.interfaces, function( key, value ) {
-
-				Visibility.stop(updateIds);
-				clearInterval(updateTimerIds);
-
-				myData[value] = [];
-
-				var itemIn = new Object();
-				var itemOut = new Object();
-
-				itemIn.key = value + " (in)";
-				if(localStorage.getItem('invert') === "true") { itemIn.area = true; }
-				itemIn.first = true;
-				itemIn.values = [{x: nowTime, y: 0}];
-				myData[value].push(itemIn);
-
-				itemOut.key = value + " (out)";
-				if(localStorage.getItem('invert') === "true") { itemOut.area = true; }
-				itemOut.first = true;
-				itemOut.values = [{x: nowTime, y: 0}];
-				myData[value].push(itemOut);
-
-			});
-
-			draw_graph(refreshInterval, then, false);
-
-		}
-	});
+	graph_init();
+	graph_visibilitycheck();
 
 });
 //]]>
 </script>
 
-<script src="/js/traffic-graphs.js"></script>
+<script src="/js/traffic-graphs.js?v=<?=filemtime('/usr/local/www/js/traffic-graphs.js')?>"></script>
 
 <script type="text/javascript">
 //<![CDATA[

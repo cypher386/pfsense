@@ -4,7 +4,7 @@
  *
  * part of pfSense (https://www.pfsense.org)
  * Copyright (c) 2008 Seth Mos
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally part of m0n0wall (http://m0n0.ch/wall)
@@ -23,8 +23,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-$nocsrf = true;
 
 require_once("guiconfig.inc");
 require_once("pfsense-utils.inc");
@@ -169,6 +167,7 @@ if ($_REQUEST && $_REQUEST['ajax']) {
 }
 
 if ($_POST['widgetkey']) {
+	set_customwidgettitle($user_settings);
 
 	if (!is_array($user_settings["widgets"][$_POST['widgetkey']])) {
 		$user_settings["widgets"][$_POST['widgetkey']] = array();
@@ -212,7 +211,7 @@ $widgetkey_nodash = str_replace("-", "", $widgetkey);
 				<th><?=gettext("Status")?></th>
 			</tr>
 		</thead>
-		<tbody id="<?=$widgetkey?>-gwtblbody">
+		<tbody id="<?=htmlspecialchars($widgetkey)?>-gwtblbody">
 <?php
 		print(compose_table_body_contents($widgetkey));
 ?>
@@ -222,9 +221,10 @@ $widgetkey_nodash = str_replace("-", "", $widgetkey);
 <!-- close the body we're wrapped in and add a configuration-panel -->
 </div><div id="<?=$widget_panel_footer_id?>" class="panel-footer collapse">
 <form action="/widgets/widgets/gateways.widget.php" method="post" class="form-horizontal">
+	<?=gen_customwidgettitle_div($widgetconfig['title']); ?>
 	<div class="form-group">
-		<label class="col-sm-3 control-label"><?=gettext('Display')?></label>
-		<?php
+		<label class="col-sm-4 control-label"><?=gettext('Display')?></label>
+<?php
 			$display_type_gw_ip = "checked";
 			$display_type_monitor_ip = "";
 			$display_type_both_ip = "";
@@ -247,13 +247,13 @@ $widgetkey_nodash = str_replace("-", "", $widgetkey);
 ?>
 		<div class="col-sm-6">
 			<div class="radio">
-				<label><input name="display_type" type="radio" id="display_type_gw_ip" value="gw_ip" <?=$display_type_gw_ip;?> onchange="updateGatewayDisplays();" /> <?=gettext('Gateway IP')?></label>
+				<label><input name="display_type" type="radio" id="display_type_gw_ip" value="gw_ip" <?=$display_type_gw_ip;?> /> <?=gettext('Gateway IP')?></label>
 			</div>
 			<div class="radio">
-				<label><input name="display_type" type="radio" id="display_type_monitor_ip" value="monitor_ip" <?=$display_type_monitor_ip;?> onchange="updateGatewayDisplays();" /><?=gettext('Monitor IP')?></label>
+				<label><input name="display_type" type="radio" id="display_type_monitor_ip" value="monitor_ip" <?=$display_type_monitor_ip;?> /><?=gettext('Monitor IP')?></label>
 			</div>
 			<div class="radio">
-				<label><input name="display_type" type="radio" id="display_type_both_ip" value="both_ip" <?=$display_type_both_ip;?> onchange="updateGatewayDisplays();" /><?=gettext('Both')?></label>
+				<label><input name="display_type" type="radio" id="display_type_both_ip" value="both_ip" <?=$display_type_both_ip;?> /><?=gettext('Both')?></label>
 			</div>
 		</div>
 	</div>
@@ -262,7 +262,7 @@ $widgetkey_nodash = str_replace("-", "", $widgetkey);
 
     <div class="panel panel-default col-sm-10">
 		<div class="panel-body">
-			<input type="hidden" name="widgetkey" value="<?=$widgetkey; ?>">
+			<input type="hidden" name="widgetkey" value="<?=htmlspecialchars($widgetkey); ?>">
 			<div class="table responsive">
 				<table class="table table-striped table-hover table-condensed">
 					<thead>
@@ -303,29 +303,33 @@ $widgetkey_nodash = str_replace("-", "", $widgetkey);
 <script>
 //<![CDATA[
 
-	function get_gw_stats_<?=$widgetkey_nodash?>() {
-		var ajaxRequest;
+events.push(function(){
+	// --------------------- Centralized widget refresh system ------------------------------
 
-		ajaxRequest = $.ajax({
-				url: "/widgets/widgets/gateways.widget.php",
-				type: "post",
-				data: { ajax: "ajax", widgetkey: "<?=$widgetkey?>"}
-			});
-
-		// Deal with the results of the above ajax call
-		ajaxRequest.done(function (response, textStatus, jqXHR) {
-			$('#<?=$widgetkey?>-gwtblbody').html(response);
-			// and do it again
-			setTimeout(get_gw_stats_<?=$widgetkey_nodash?>, "<?=$widgetperiod?>");
-		});
+	// Callback function called by refresh system when data is retrieved
+	function gateways_callback(s) {
+		$(<?= json_encode('#' . $widgetkey . '-gwtblbody')?>).html(s);
 	}
 
-	events.push(function(){
-		set_widget_checkbox_events("#<?=$widget_panel_footer_id?> [id^=show]", "<?=$widget_showallnone_id?>");
+	// POST data to send via AJAX
+	var postdata = {
+		ajax: "ajax",
+		widgetkey : <?=json_encode($widgetkey)?>
+	 };
 
-		// Start polling for updates some small random number of seconds from now (so that all the widgets don't
-		// hit the server at exactly the same time)
-		setTimeout(get_gw_stats_<?=$widgetkey_nodash?>, Math.floor((Math.random() * 10000) + 1000));
-	});
+	// Create an object defining the widget refresh AJAX call
+	var gatewaysObject = new Object();
+	gatewaysObject.name = "Gateways";
+	gatewaysObject.url = "/widgets/widgets/gateways.widget.php";
+	gatewaysObject.callback = gateways_callback;
+	gatewaysObject.parms = postdata;
+	gatewaysObject.freq = 1;
+
+	// Register the AJAX object
+	register_ajax(gatewaysObject);
+
+	// ---------------------------------------------------------------------------------------------------
+});
+
 //]]>
 </script>

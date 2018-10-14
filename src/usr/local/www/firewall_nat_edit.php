@@ -3,7 +3,7 @@
  * firewall_nat_edit.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -113,7 +113,7 @@ if (isset($_REQUEST['dup']) && is_numericint($_REQUEST['dup'])) {
  */
 unset($input_errors);
 
-foreach ($_REQUEST as $key => $value) {
+foreach ($_POST as $key => $value) {
 	if ($key == 'descr') {
 		continue;
 	}
@@ -127,7 +127,6 @@ foreach ($_REQUEST as $key => $value) {
 }
 
 if ($_POST['save']) {
-
 	if (strtoupper($_POST['proto']) == "TCP" || strtoupper($_POST['proto']) == "UDP" || strtoupper($_POST['proto']) == "TCP/UDP") {
 		if ($_POST['srcbeginport_cust'] && !$_POST['srcbeginport']) {
 			$_POST['srcbeginport'] = trim($_POST['srcbeginport_cust']);
@@ -251,6 +250,10 @@ if ($_POST['save']) {
 		$_POST['localip'] = trim($_POST['localip']);
 	}
 
+	if (!array_key_exists($_POST['interface'], create_interface_list())) {
+		$input_errors[] = gettext("The submitted interface does not exist.");
+	}
+
 	if (!isset($_POST['nordr']) && ($_POST['localip'] && !is_ipaddroralias($_POST['localip']))) {
 		$input_errors[] = sprintf(gettext("\"%s\" is not a valid redirect target IP address or host alias."), $_POST['localip']);
 	}
@@ -321,7 +324,7 @@ if ($_POST['save']) {
 	}
 
 	if (!$input_errors) {
-		if (!isset($_POST['nordr']) && ($_POST['dstendport'] - $_POST['dstbeginport'] + $_POST['localbeginport']) > 65535) {
+		if (!isset($_POST['nordr']) && ((int) $_POST['dstendport'] - (int) $_POST['dstbeginport'] + (int) $_POST['localbeginport']) > 65535) {
 			$input_errors[] = gettext("The target port range must be an integer between 1 and 65535.");
 		}
 	}
@@ -459,7 +462,7 @@ if ($_POST['save']) {
 			}
 
 			$dstpfrom = $_POST['localbeginport'];
-			$dstpto = $dstpfrom + $_POST['dstendport'] - $_POST['dstbeginport'];
+			$dstpto = (int) $dstpfrom + (int) $_POST['dstendport'] - (int) $_POST['dstbeginport'];
 
 			if ($dstpfrom == $dstpto) {
 				$filterent['destination']['port'] = $dstpfrom;
@@ -588,7 +591,7 @@ function build_dsttype_list() {
 			$list[$ifent . 'ip'] = $ifdesc . ' address';
 		}
 	}
-	
+
 	//Temporary array so we can sort IPs
 	$templist = array();
 	if (is_array($config['virtualip']['vip'])) {
@@ -615,7 +618,7 @@ function build_dsttype_list() {
 			}
 		}
 	}
-	
+
 	//Sort temp IP array and append onto main array
 	asort($templist);
 	$list = array_merge($list, $templist);
@@ -667,39 +670,11 @@ $section->addInput(new Form_Checkbox(
 	$pconfig['nordr']
 ))->setHelp('This option is rarely needed. Don\'t use this without thorough knowledge of the implications.');
 
-$iflist = get_configured_interface_with_descr(false, true);
-
-foreach ($iflist as $if => $ifdesc) {
-	if (have_ruleint_access($if)) {
-		$interfaces[$if] = $ifdesc;
-	}
-}
-
-if ($config['l2tp']['mode'] == "server") {
-	if (have_ruleint_access("l2tp")) {
-		$interfaces['l2tp'] = gettext("L2TP VPN");
-	}
-}
-
-if (is_pppoe_server_enabled() && have_ruleint_access("pppoe")) {
-	$interfaces['pppoe'] = gettext("PPPoE Server");
-}
-
-/* add ipsec interfaces */
-if (ipsec_enabled() && have_ruleint_access("enc0")) {
-	$interfaces["enc0"] = gettext("IPsec");
-}
-
-/* add openvpn/tun interfaces */
-if ($config['openvpn']["openvpn-server"] || $config['openvpn']["openvpn-client"]) {
-	$interfaces["openvpn"] = gettext("OpenVPN");
-}
-
 $section->addInput(new Form_Select(
 	'interface',
 	'*Interface',
 	$pconfig['interface'],
-	$interfaces
+	filter_get_interface_list()
 ))->setHelp('Choose which interface this rule applies to. In most cases "WAN" is specified.');
 
 $protocols = "TCP UDP TCP/UDP ICMP ESP AH GRE IPV6 IGMP PIM OSPF";
@@ -958,34 +933,7 @@ if (isset($id) && $a_nat[$id] && (!isset($_POST['dup']) || !is_numericint($_POST
 
 $form->add($section);
 
-$has_created_time = (isset($a_nat[$id]['created']) && is_array($a_nat[$id]['created']));
-$has_updated_time = (isset($a_nat[$id]['updated']) && is_array($a_nat[$id]['updated']));
-
-if ($has_created_time || $has_updated_time) {
-	$section = new Form_Section('Rule Information');
-
-	if ($has_created_time) {
-		$section->addInput(new Form_StaticText(
-			'Created',
-			sprintf(
-				gettext('%1$s by %2$s'),
-				date(gettext("n/j/y H:i:s"), $a_nat[$id]['created']['time']),
-				$a_nat[$id]['created']['username'])
-		));
-	}
-
-	if ($has_updated_time) {
-		$section->addInput(new Form_StaticText(
-			'Updated',
-			sprintf(
-				gettext('%1$s by %2$s'),
-				date(gettext("n/j/y H:i:s"), $a_nat[$id]['updated']['time']),
-				$a_nat[$id]['updated']['username'])
-		));
-	}
-
-	$form->add($section);
-}
+gen_created_updated_fields($form, $a_nat[$id]['created'], $a_nat[$id]['updated']);
 
 if (isset($id) && $a_nat[$id]) {
 	$form->addGlobal(new Form_Input(
@@ -1237,7 +1185,7 @@ events.push(function() {
 <?php
 if (!$_POST) {
 ?>
-	dst_change($('#interface').val(),'<?=htmlspecialchars($pconfig['interface'])?>','<?=htmlspecialchars($pconfig['dst'])?>');
+	dst_change($('#interface').val(),'<?=htmlspecialchars(addslashes($pconfig['interface']))?>','<?=htmlspecialchars($pconfig['dst'])?>');
 <?php
 }
 ?>

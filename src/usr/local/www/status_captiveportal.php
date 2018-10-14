@@ -3,7 +3,7 @@
  * status_captiveportal.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -36,6 +36,35 @@ require_once("filter.inc");
 require_once("shaper.inc");
 require_once("captiveportal.inc");
 
+/*
+Return true if multiple servers type are selected in captiveportal config, false otherwise
+*/
+function mutiple_auth_server_type() {
+	global $config, $cpzone;
+	
+	$auth_types = array();
+
+	$fullauthservers = explode(",", $config['captiveportal'][$cpzone]['auth_server']);
+	foreach($fullauthservers as $authserver) {
+		if(strpos($authserver, ' - ') !== false) {
+			$authserver = explode(' - ', $authserver);
+			$auth_types[array_shift($authserver)] = true;
+		}
+	}
+	$fullauthservers2 = explode(",", $config['captiveportal'][$cpzone]['auth_server2']);
+	foreach($fullauthservers2 as $authserver) {
+		if(strpos($authserver, ' - ') !== false) {
+			$authserver = explode(' - ', $authserver);
+			$auth_types[array_shift($authserver)] = true;
+		}
+	}
+	if($config['captiveportal'][$cpzone]['auth_method'] === 'authserver' && count($auth_types)>1) {
+		return true;
+	} else {
+		return false;
+	}
+}
+
 function print_details($cpent) {
 	global $config, $cpzone, $cpzoneid;
 
@@ -59,22 +88,22 @@ function print_details($cpent) {
 
 	/* print idle time and time left before disconnection if idle timeout is set */
 	if ($_REQUEST['showact']) {
-		$last_act = captiveportal_get_last_activity($cpent[2], $cpent[3]);
+		$last_act = captiveportal_get_last_activity($cpent[2]);
 
 		/* if the user never sent traffic, set last activity time to the login time */
 		$last_act = $last_act ? $last_act : $cpent[0];
 
 		$idle_time = time() - $last_act;
-		printf(gettext("Idle time: %s") . "<br>", convert_seconds_to_dhms($idle_time));
+		printf(gettext("Idle time: %s") . "<br>", convert_seconds_to_dhms((int)$idle_time));
 
 		if (!empty($cpent[8])) {
 			$idle_time_left = $last_act + $cpent[8] - time();
-			printf(gettext("Idle time left: %s") . "<br>", convert_seconds_to_dhms($idle_time_left));
+			printf(gettext("Idle time left: %s") . "<br>", convert_seconds_to_dhms((int)$idle_time_left));
 		}
 	}
 
 	/* print bytes sent and received, invert the values if reverse accounting is enabled */
-	$volume = getVolume($cpent[2], $cpent[3]);
+	$volume = getVolume($cpent[2]);
 	$reverse = isset($config['captiveportal'][$cpzone]['reverseacct']) ? true : false;
 	if ($reverse) {
 		printf(gettext("Bytes sent: %s") . "<br>" . gettext("Bytes received: %s") . "\" data-html=\"true\">", format_bytes($volume['output_bytes']), format_bytes($volume['input_bytes']));
@@ -108,7 +137,7 @@ if (isset($cpzone) && !empty($cpzone) && isset($a_cp[$cpzone]['zoneid'])) {
 }
 
 if ($_POST['act'] == "del" && !empty($cpzone) && isset($cpzoneid) && isset($_POST['id'])) {
-	captiveportal_disconnect_client($_POST['id'], 6);
+	captiveportal_disconnect_client($_POST['id'], 6, "DISCONNECT - KIKED OUT BY ADMINISTRATOR");
 	/* keep displaying last activity times */
 	if ($_POST['showact']) {
 		header("Location: status_captiveportal.php?zone={$cpzone}&showact=1");
@@ -195,6 +224,14 @@ if (!empty($cpzone)): ?>
 	endif;
 ?>
 					<th><?=gettext("Username")?></th>
+<?php
+	 // if multiple auth method are selected
+	if (mutiple_auth_server_type()): 
+?>
+					<th><?=gettext("Authentication method")?></th>
+<?php
+	endif;
+?>
 					<th><?=gettext("Session start")?></th>
 <?php
 	if ($_REQUEST['showact']):
@@ -232,8 +269,15 @@ if (!empty($cpzone)): ?>
 ?>
 					<td><?php print_details($cpent); ?></td>
 <?php
+	if (mutiple_auth_server_type()):
+?>
+					<td><?=htmlspecialchars($cpent[12]);?></td>
+<?php
+	endif;
+?>
+<?php
 		if ($_REQUEST['showact']):
-			$last_act = captiveportal_get_last_activity($cpent[2], $cpent[3]);
+			$last_act = captiveportal_get_last_activity($cpent[2]);
 			/* if the user never sent traffic, set last activity time to the login time */
 			$last_act = $last_act ? $last_act : $cpent[0];
 ?>

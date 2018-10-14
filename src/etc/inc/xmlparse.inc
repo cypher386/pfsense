@@ -3,7 +3,7 @@
  * xmlparse.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally part of m0n0wall (http://m0n0.ch/wall)
@@ -47,8 +47,8 @@ function listtags() {
 		'qinqentry', 'queue',
 		'pages', 'pipe', 'radnsserver', 'roll', 'route', 'row', 'rrddatafile', 'rule',
 		'schedule', 'service', 'servernat', 'servers',
-		'serversdisabled', 'shellcmd', 'staticmap', 'subqueue',
-		'timerange', 'tunnel', 'user', 'vip', 'virtual_server', 'vlan',
+		'serversdisabled', 'shellcmd', 'staticmap', 'subqueue', 'switch', 'swport',
+		'timerange', 'tunnel', 'user', 'vip', 'virtual_server', 'vlan', 'vlangroup',
 		'winsserver', 'wolentry', 'widget'
 	);
 	return array_flip($ret);
@@ -84,7 +84,8 @@ function startElement($parser, $name, $attrs) {
 
 	} else if (isset($ptr)) {
 		/* multiple entries not allowed for this element, bail out */
-		die(sprintf(gettext('XML error: %1$s at line %2$d cannot occur more than once') . "\n",
+		throw new Exception(
+		    sprintf(gettext('XML error: %1$s at line %2$d cannot occur more than once') . "\n",
 		    $name,
 		    xml_get_current_line_number($parser)));
 	}
@@ -212,6 +213,19 @@ function parse_xml_config_raw($cffile, $rootobj, $isstring = "false") {
 	}
 }
 
+/* Return true if a field should be cdata encoded */
+function is_cdata_entity($ent) {
+	$cdata_fields = array(
+		'auth_prompt', 'certca', 'certname', 'city', 'common_name',
+		'descr', 'detail', 'email', 'ldap_attr', 'ldap_authcn',
+		'ldap_basedn', 'ldap_bind', 'ldap_extended_query',
+		'login_banner', 'organization', 'state', 'text'
+	);
+
+	/* Check if the entity name starts with any of the strings above */
+	return preg_match('/(^' . implode('|^', $cdata_fields) . ')/', $ent) === 1;
+}
+
 function dump_xml_config_sub($arr, $indent) {
 
 	global $listtags;
@@ -241,14 +255,7 @@ function dump_xml_config_sub($arr, $indent) {
 						$xmlconfig .= str_repeat("\t", $indent);
 						if ((is_bool($cval) && $cval == true) || ($cval === "")) {
 							$xmlconfig .= "<$ent></$ent>\n";
-						} else if ((substr($ent, 0, 5) == "descr") ||
-						    (substr($ent, 0, 6) == "detail") ||
-						    (substr($ent, 0, 12) == "login_banner") ||
-						    (substr($ent, 0, 9) == "ldap_attr") ||
-						    (substr($ent, 0, 9) == "ldap_bind") ||
-						    (substr($ent, 0, 11) == "ldap_basedn") ||
-						    (substr($ent, 0, 18) == "ldap_authcn") ||
-						    (substr($ent, 0, 19) == "ldap_extended_query")) {
+						} else if (is_cdata_entity($ent)) {
 							$xmlconfig .= "<$ent><![CDATA[" . htmlentities($cval) . "]]></$ent>\n";
 						} else {
 							$xmlconfig .= "<$ent>" . htmlentities($cval) . "</$ent>\n";
@@ -272,15 +279,7 @@ function dump_xml_config_sub($arr, $indent) {
 				$xmlconfig .= "<$ent></$ent>\n";
 			} else if (!is_bool($val)) {
 				$xmlconfig .= str_repeat("\t", $indent);
-				if ((substr($ent, 0, 5) == "descr") ||
-				    (substr($ent, 0, 6) == "detail") ||
-				    (substr($ent, 0, 12) == "login_banner") ||
-				    (substr($ent, 0, 9) == "ldap_attr") ||
-				    (substr($ent, 0, 9) == "ldap_bind") ||
-				    (substr($ent, 0, 11) == "ldap_basedn") ||
-				    (substr($ent, 0, 18) == "ldap_authcn") ||
-				    (substr($ent, 0, 19) == "ldap_extended_query") ||
-				    (substr($ent, 0, 5) == "text")) {
+				if (is_cdata_entity($ent)) {
 					$xmlconfig .= "<$ent><![CDATA[" . htmlentities($val) . "]]></$ent>\n";
 				} else {
 					$xmlconfig .= "<$ent>" . htmlentities($val) . "</$ent>\n";

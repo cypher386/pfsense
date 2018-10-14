@@ -2,7 +2,7 @@
  * thermal_sensors.js
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,38 +18,10 @@
  * limitations under the License.
  */
 
-warningTemp = 9999;
-criticalTemp = 100;
+var warningTemp = 9999;
+var criticalTemp = 100;
+var widgetUnit = 'C';
 ajaxBusy = false;
-
-//should be called from "thermal_sensors.widget.php"
-function showThermalSensorsData(widgetKey, tsParams, firstTime) {
-	if (!ajaxBusy) {
-		ajaxBusy = true;
-		//get data from thermal_sensors.widget.php
-		url = "/widgets/widgets/thermal_sensors.widget.php?getThermalSensorsData=1"
-				//IE fix to disable cache when using http:// , just append timespan
-				+ new Date().getTime();
-
-		$.ajax(url, {
-			type: 'get',
-			success: function(data) {
-				var thermalSensorsData = data || "";
-				buildThermalSensorsData(thermalSensorsData, widgetKey, tsParams, firstTime);
-				firstTime = false;
-			},
-			error: function(jqXHR, status, error) {
-				firstTime = true;
-				warningTemp = 9999;
-				buildThermalSensorsDataRaw('<span class="alert-danger">Temperature data could not be read.</span>', widgetKey);
-			}
-		});
-
-		ajaxBusy = false;
-	}
-	//call itself in 11 seconds
-	window.setTimeout(function(){showThermalSensorsData(widgetKey, tsParams, firstTime);}, 11000);
-}
 
 function buildThermalSensorsData(thermalSensorsData, widgetKey, tsParams, firstTime) {
 	if (tsParams.showRawOutput) {
@@ -115,14 +87,19 @@ function buildThermalSensorsDataGraph(thermalSensorsData, tsParams, widgetKey) {
 			sensorName = getSensorFriendlyName(sensorName);
 		}
 
+		if (tsParams.showFahrenheit) {
+			widgetUnit = 'F';
+			thermalSensorValue = getFahrenheitValue(thermalSensorValue);
+		}
+
 		//build temperature item/row for a sensor
 
 		var thermalSensorRow =	'<div class="progress">' +
-									'<div id="temperaturebarL' + i + widgetKey + '" class="progress-bar progress-bar-success progress-bar-striped" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="1" style="width: 1%"></div>' +
-									'<div id="temperaturebarM' + i + widgetKey + '" class="progress-bar progress-bar-warning progress-bar-striped" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width: 0%"></div>' +
-									'<div id="temperaturebarH' + i + widgetKey + '" class="progress-bar progress-bar-danger progress-bar-striped" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width: 0%"></div>' +
-								'</div>' +
-								'<span><b>' + sensorName + ': </b></span>' + '<span id="temperaturemsg' + i + widgetKey + '">' + thermalSensorValue + ' &deg;C</span>';
+						'<div id="temperaturebarL' + i + widgetKey + '" class="progress-bar progress-bar-success progress-bar-striped" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="1" style="width: 1%"></div>' +
+						'<div id="temperaturebarM' + i + widgetKey + '" class="progress-bar progress-bar-warning progress-bar-striped" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width: 0%"></div>' +
+						'<div id="temperaturebarH' + i + widgetKey + '" class="progress-bar progress-bar-danger progress-bar-striped" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width: 0%"></div>' +
+					'</div>' +
+					'<span><b>' + sensorName + ': </b></span>' + '<span id="temperaturemsg' + i + widgetKey + '">' + thermalSensorValue + '</span> &deg;' + widgetUnit;
 
 
 		thermalSensorsHTMLContent = thermalSensorsHTMLContent + thermalSensorRow;
@@ -163,7 +140,7 @@ function updateThermalSensorsDataGraph(thermalSensorsData, tsParams, widgetKey) 
 			sensorName = getSensorFriendlyName(sensorName);
 		}
 
-	setTempProgress(i, thermalSensorValue, widgetKey);
+		setTempProgress(i, thermalSensorValue, widgetKey);
 	}
 }
 
@@ -186,6 +163,14 @@ function getThermalSensorValue(stringValue) {
 	return (+parseFloat(stringValue) || 0).toFixed(1);
 }
 
+function getFahrenheitValue(cels) {
+        return Math.ceil((cels * 1.8) + 32);
+}
+
+function getCelsiusValue(fahr) {
+        return Math.floor((fahr - 32) / 1.8);
+}
+
 // Update the progress indicator
 // transition = true allows the bar to move at default speed, false = instantaneous
 function setTempProgress(bar, percent, widgetKey) {
@@ -205,10 +190,9 @@ function setTempProgress(bar, percent, widgetKey) {
 		barTempH = percent - criticalTemp;
 	}
 
-
 	$('#' + 'temperaturebarL' + bar + widgetKey).css('width', barTempL + '%').attr('aria-valuenow', barTempL);
 	$('#' + 'temperaturebarM' + bar + widgetKey).css('width', barTempM + '%').attr('aria-valuenow', barTempM);
 	$('#' + 'temperaturebarH' + bar + widgetKey).css('width', barTempH + '%').attr('aria-valuenow', barTempH);
 
-	$('#' + 'temperaturemsg' + bar + widgetKey).html(percent + ' &deg;C');
+	$('#' + 'temperaturemsg' + bar + widgetKey).html(widgetUnit === 'F' ? getFahrenheitValue(percent) : percent);
 }

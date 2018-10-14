@@ -3,7 +3,7 @@
  * guiconfig.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -25,6 +25,8 @@
 
 /* Include authentication routines */
 /* THIS MUST BE ABOVE ALL OTHER CODE */
+header("X-Frame-Options: SAMEORIGIN");
+include_once('phpsessionmanager.inc');
 if (!$nocsrf) {
 	function csrf_startup() {
 		global $config;
@@ -33,6 +35,9 @@ if (!$nocsrf) {
 		csrf_conf('expires', $timeout_minutes * 60);
 	}
 	require_once("csrf/csrf-magic.php");
+	if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+		phpsession_end(true);
+	}
 }
 
 /* make sure nothing is cached */
@@ -43,7 +48,6 @@ if (!$omit_nocacheheaders) {
 	header("Pragma: no-cache");
 }
 
-header("X-Frame-Options: SAMEORIGIN");
 require_once("authgui.inc");
 
 /* parse the configuration and include all configuration functions */
@@ -83,7 +87,7 @@ $reserved_table_names = array(
 	"bogonsv6",
 	"negate_networks",
 	"snort2c",
-	"sshlockout",
+	"sshguard",
 	"tonatsubnets",
 	"virusprot",
 	"vpn_networks",
@@ -226,7 +230,7 @@ $specialnets = array(
 	"pppoe" => gettext("PPPoE clients"),
 	"l2tp" => gettext("L2TP clients"));
 
-$spiflist = get_configured_interface_with_descr(false, true);
+$spiflist = get_configured_interface_with_descr(true);
 foreach ($spiflist as $ifgui => $ifdesc) {
 	$specialnets[$ifgui] = $ifdesc . " net";
 	$specialnets[$ifgui . 'ip'] = $ifdesc . " address";
@@ -253,9 +257,11 @@ function do_input_validation($postdata, $reqdfields, $reqdfieldsn, &$input_error
 		}
 	}
 
-	for ($i = 0; $i < count($reqdfields); $i++) {
-		if ($_POST[$reqdfields[$i]] == "" && $_REQUEST[$reqdfields[$i]] == "") {
-			$input_errors[] = sprintf(gettext("The field %s is required."), $reqdfieldsn[$i]);
+	if (is_array($reqdfields)) {
+		for ($i = 0; $i < count($reqdfields); $i++) {
+			if ($postdata[$reqdfields[$i]] == "") {
+				$input_errors[] = sprintf(gettext("The field %s is required."), $reqdfieldsn[$i]);
+			}
 		}
 	}
 }
@@ -310,7 +316,7 @@ function sprint_info_box($msg, $class="alert-warning", $btnname = "close", $btnt
 
 		$msg .= '<form method="post" class="pull-right"><button type="submit" class="btn btn-' . $btnclass . '" name="'. $btnname . '" value="' . $btntext . '">' . $btnicon . $btntext . '</button>';
 
-		if ($_POST['if']) {
+		if ( isset($_POST['if']) && !empty($_POST['if'])) {
 			$msg .= "<input type=\"hidden\" name=\"if\" value=\"" . htmlspecialchars($_POST['if']) . "\" />";
 		}
 
@@ -385,7 +391,7 @@ function get_std_save_message($retval) {
 		$to_return = gettext("The changes have been applied successfully.");
 	} else {
 		// non-zero means there was some problem
-		$to_return = sprintf(gettext('There was a problem applying the changes. See the %1$sSystem Logs%2$s.'), '<a href=\"status_logs.php\">', '</a>');
+		$to_return = sprintf(gettext('There was a problem applying the changes. See the %1$sSystem Logs%2$s.'), '<a href="status_logs.php">', '</a>');
 	}
 	foreach ($filter_pages as $fp) {
 		if (stristr($_SERVER['SCRIPT_FILENAME'], $fp)) {
@@ -531,8 +537,13 @@ function gentitle($title) {
 }
 
 function genhtmltitle($title, $links=true) {
-
-	$num_crumbs = count($title);
+	if (is_array($title)) {
+		$num_crumbs = count($title);
+	} else if ($title != NULL) {
+		$num_crumbs = 1;
+	} else {
+		$num_crumbs = 0;
+	}
 
 	// If the array contains only one element, there are no breadcrumbs, so don't
 	// add anything else
@@ -571,6 +582,25 @@ function genhtmltitle($title, $links=true) {
 	}
 
 	return $bc;
+}
+
+function gen_customwidgettitle_div($widgettitle) {
+	$divstr = '<div class="form-group">';
+	$divstr .= '  <label for="descr" class="col-sm-4 control-label">' . gettext('Widget title'). '</label>';
+	$divstr .= '  <div class="col-sm-4">';
+	$divstr .= '    <input type="text" name="descr" id="descr" value="'. $widgettitle . '" class="form-control" />';
+	$divstr .= '  </div>';
+	$divstr .= '</div>';
+
+	return $divstr;
+}
+
+function set_customwidgettitle(& $user_settings) {
+	if ($_POST['descr']) {
+		$user_settings['widgets'][$_POST['widgetkey']]['descr'] = trim($_POST['descr']);
+	} else {
+		unset($user_settings['widgets'][$_POST['widgetkey']]['descr']);
+	}
 }
 
 /* update the changedesc and changecount(er) variables */
@@ -802,7 +832,12 @@ function pconfig_to_address(&$adr, $padr, $pmask, $pnot = false, $pbeginport = 0
 		}
 	}
 
-	if (is_alias($pbeginport)) {
+	/*
+	 * If the port is still unset, then it must not be numeric, but could
+	 * be an alias or a well-known/registered service.
+	 * See https://redmine.pfsense.org/issues/8410
+	 */
+	if (!isset($adr['port']) && is_port_or_alias($pbeginport)) {
 		$adr['port'] = $pbeginport;
 	}
 }
@@ -1016,7 +1051,7 @@ function display_top_tabs(& $tab_array, $no_drop_down = false, $type = 'pills', 
 	}
 
 	if ($tab_array_char_limit == '') {
-		$tab_array_char_limit = 92;
+		$tab_array_char_limit = 256;
 	}
 
 	foreach ($tab_array as $tab_id => $ta) {
@@ -1219,18 +1254,20 @@ var_dump($content);die;
 }
 
 function set_flash_message($class, $msg) {
-	@session_start();
+	@phpsession_begin();
 	$_SESSION['flash_messages'][$class][] = $msg;
+	@phpsession_end(true);
 }
 
 function get_flash_message() {
-	@session_start();
+	@phpsession_begin();
 	if (isset($_SESSION['flash_messages']) && !empty($_SESSION['flash_messages'])) {
 		foreach ($_SESSION['flash_messages'] as $class => $flash_message) {
 			print_info_box(implode("<br />", $flash_message), $class);
 		}
 		unset($_SESSION['flash_messages']);
 	}
+	@phpsession_end(true);
 }
 
 /* Retrieve GET or POST Value/State
@@ -1259,6 +1296,39 @@ if (isset($config['system']['timezone']) &&
 	$timezone = $g['default_timezone'];
 } else {
 	$timezone = "Etc/UTC";
+}
+
+/* Remove files we do not want to see in a crash report */
+function cleanup_crash_file_list() {
+	$files = glob("/var/crash/*");
+	if (!is_array($files) || empty($files)) {
+		return array();
+	}
+
+	$exclude_patterns = array(
+		'.*.last',
+		'bounds',
+		'minfree'
+	);
+
+	foreach ($files as $idx => $fb) {
+		if (preg_match('/' . implode('|', $exclude_patterns) . '/', basename($fb)) == 1) {
+			unset($files[$idx]);
+		}
+	}
+
+	return $files;
+}
+
+function system_has_crash_data() {
+	/* Test if there are any crash data files present */
+	return count(cleanup_crash_file_list()) > 0;
+}
+
+function system_has_php_errors() {
+	/* Check if the PHP error log is empty. Cast to int in case the file
+	 * does not exist and filesize() returns false. */
+	return (int) @filesize("/tmp/PHP_errors.log") > 0;
 }
 
 date_default_timezone_set($timezone);

@@ -3,7 +3,7 @@
  * getstats.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2009 Bill Marquette
  * All rights reserved.
  *
@@ -32,7 +32,7 @@ header("Expires: " . gmdate("D, j M Y H:i:s", time()) . " GMT");
 header("Cache-Control: no-cache, no-store, must-revalidate"); // HTTP/1.1
 header("Pragma: no-cache"); // HTTP/1.0
 
-require_once("guiconfig.inc");
+require_once("auth_check.inc");
 include_once("includes/functions.inc.php");
 
 echo get_stats();

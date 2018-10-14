@@ -3,7 +3,7 @@
  * service-utils.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2005-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2005-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2005-2006 Colin Smith (ethethlay@gmail.com)
  * All rights reserved.
  *
@@ -20,13 +20,15 @@
  * limitations under the License.
  */
 
-require_once("globals.inc");
 require_once("captiveportal.inc");
-require_once("openvpn.inc");
+require_once("globals.inc");
+require_once("gwlb.inc");
 require_once("ipsec.inc");
+require_once("openvpn.inc");
+require_once("system.inc");
+require_once("util.inc");
 require_once("vpn.inc");
 require_once("vslb.inc");
-require_once("gwlb.inc");
 
 define("RCFILEPREFIX", "/usr/local/etc/rc.d/");
 function write_rcfile($params) {
@@ -72,7 +74,7 @@ function write_rcfile($params) {
 	return;
 }
 
-function start_service($name) {
+function start_service($name, $after_sync = false) {
 	global $config;
 
 	if (empty($name)) {
@@ -82,6 +84,11 @@ function start_service($name) {
 	if (is_array($config['installedpackages']) && is_array($config['installedpackages']['service'])) {
 		foreach ($config['installedpackages']['service'] as $service) {
 			if (strtolower($service['name']) == strtolower($name)) {
+				/* Avoid starting twice if this is called just after a
+				 * package sync which starts the service itself. */
+				if ($after_sync && isset($service['starts_on_sync'])) {
+					break;
+				}
 				if ($service['rcfile']) {
 					$prefix = RCFILEPREFIX;
 					if (!empty($service['prefix'])) {
@@ -261,6 +268,11 @@ function get_services() {
 	$pconfig['description'] = gettext("NTP clock sync");
 	$services[] = $pconfig;
 
+	$pconfig = array();
+	$pconfig['name'] = "syslogd";
+	$pconfig['description'] = gettext("System Logger Daemon");
+	$services[] = $pconfig;
+
 	if (is_array($config['captiveportal'])) {
 		foreach ($config['captiveportal'] as $zone => $setting) {
 			if (isset($setting['enable'])) {
@@ -339,7 +351,7 @@ function get_services() {
 		$services[] = $pconfig;
 	}
 
-	if (isset($config['system']['enablesshd'])) {
+	if (isset($config['system']['ssh']['enable'])) {
 		$pconfig = array();
 		$pconfig['name'] = "sshd";
 		$pconfig['description'] = gettext("Secure Shell Daemon");
@@ -362,12 +374,17 @@ function get_services() {
 		}
 	}
 
-	if (count($config['load_balancer']['virtual_server']) && count($config['load_balancer']['lbpool'])) {
+	if (!is_array($config['load_balancer']['lbpool'])) {
+		$config['load_balancer']['lbpool'] = array();
+	}
+
+	if (is_array($config['load_balancer']['virtual_server']) && count($config['load_balancer']['virtual_server']) && count($config['load_balancer']['lbpool'])) {
 		$pconfig = array();
 		$pconfig['name'] = "relayd";
 		$pconfig['description'] = gettext("Server load balancing daemon");
 		$services[] = $pconfig;
 	}
+
 	return $services;
 }
 
@@ -401,18 +418,38 @@ function find_service_by_cp_zone($zone) {
 	return array();
 }
 
-function service_name_compare($a, $b) {
-	if (strtolower($a['name']) == strtolower($b['name'])) {
+function service_description_compare($a, $b) {
+	if (strtolower($a['description']) == strtolower($b['description'])) {
 		return 0;
+	}
+	return (strtolower($a['description']) < strtolower($b['description'])) ? -1 : 1;
+}
+
+function service_name_compare($a, $b) {
+	/* If the names are equal, fall back to sorting by description */
+	if (strtolower($a['name']) == strtolower($b['name'])) {
+		return service_description_compare($a, $b);
 	}
 	return (strtolower($a['name']) < strtolower($b['name'])) ? -1 : 1;
 }
 
 function service_dispname_compare($a, $b) {
-	if (strtolower($a['dispname']) == strtolower($b['dispname'])) {
-		return 0;
+	/* If two items have an instance suffix, perform an integer comparison to avoid awkward sorting */
+	if ((strpos($a['dispname'], '_') > 0) && (strpos($b['dispname'], '_') > 0)) {
+		list($adn1, $adn2) = explode('_', $a['dispname'], 2);
+		list($bdn1, $bdn2) = explode('_', $b['dispname'], 2);
+		if (($adn1 == $bdn1) && is_numeric($adn2) && is_numeric($bdn2)) {
+			if ($adn2 == $bdn2) {
+				return 0;
+			}
+			return ((int)$adn2 < (int)$bdn2) ? -1 : 1;
+		}
 	}
-	return (strtolower($a['name']) < strtolower($b['name'])) ? -1 : 1;
+	/* If the display names are equal, compare the internal name */
+	if (strtolower($a['dispname']) == strtolower($b['dispname'])) {
+		return service_name_compare($a, $b);
+	}
+	return (strtolower($a['dispname']) < strtolower($b['dispname'])) ? -1 : 1;
 }
 
 function get_pkg_descr($package_name) {
@@ -570,7 +607,6 @@ function service_control_start($name, $extras) {
 			captiveportal_init_webgui_zonename($zone);
 			break;
 		case 'ntpd':
-		case 'openntpd':
 			system_ntp_configure();
 			break;
 		case 'dpinger':
@@ -619,6 +655,9 @@ function service_control_start($name, $extras) {
 		case 'relayd':
 			relayd_configure();
 			filter_configure();
+			break;
+		case 'syslogd':
+			system_syslogd_start();
 			break;
 		default:
 			start_service($name);
@@ -688,7 +727,19 @@ function service_control_stop($name, $extras) {
 			}
 			break;
 		case 'relayd':
-			mwexec('pkill relayd');
+			sigkillbyname("relayd", "TERM");
+			break;
+		case 'syslogd':
+			if (isvalidpid("{$g['varrun_path']}/syslog.pid")) {
+				sigkillbypid("{$g['varrun_path']}/syslog.pid", "TERM");
+				usleep(100000);
+			}
+			if (isvalidpid("{$g['varrun_path']}/syslog.pid")) {
+				sigkillbypid("{$g['varrun_path']}/syslog.pid", "KILL");
+				usleep(100000);
+			}
+			/* Make sure sshguard stops as well */
+			sigkillbyname("sshguard", "TERM");
 			break;
 		default:
 			stop_service($name);
@@ -759,6 +810,9 @@ function service_control_restart($name, $extras) {
 		case 'relayd':
 			relayd_configure(true);
 			filter_configure();
+			break;
+		case 'syslogd':
+			system_syslogd_start();
 			break;
 		default:
 			restart_service($name);

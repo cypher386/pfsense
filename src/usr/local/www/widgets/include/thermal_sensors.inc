@@ -3,7 +3,7 @@
  * thermal_sensors.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,13 +23,14 @@
 //set variable for custom title
 $thermal_sensors_widget_title = gettext("Thermal Sensors");
 //$thermal_sensors_widget_link = "thermal_sensors.php";
+$thermal_sensors_allow_multiple_widget_copies = true;
 
 
 //returns core temp data (from coretemp.ko or amdtemp.ko driver) as "|"-delimited string.
 //NOTE: depends on proper config in System >> Advanced >> Miscellaneous tab >> Thermal Sensors section.
 function getThermalSensorsData() {
 
-	$_gb = exec("/sbin/sysctl -a | grep temperature", $dfout);
+	$_gb = exec("/sbin/sysctl -aq | grep temperature", $dfout);
 	$dfout_filtered = array_filter($dfout, function($v) {
 		return strpos($negsign, ' -') === false;
 	});

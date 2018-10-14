@@ -3,7 +3,7 @@
  * system_groupmanager_addprivs.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2006 Daniel S. Haischt.
  * All rights reserved.
  *
@@ -33,6 +33,10 @@
 ##|-PRIV
 
 require_once("guiconfig.inc");
+require_once("pfsense-utils.inc");
+
+$logging_level = LOG_WARNING;
+$logging_prefix = gettext("Local User Database");
 
 $groupid = $_REQUEST['groupid'];
 
@@ -52,6 +56,7 @@ if (!is_array($a_group['priv'])) {
 
 // Make a local copy and sort it
 $spriv_list = $priv_list;
+uasort($spriv_list, "compare_by_name");
 
 if ($_POST['save']) {
 
@@ -85,7 +90,9 @@ if ($_POST['save']) {
 			}
 		}
 
-		write_config();
+		$savemsg = sprintf(gettext("Privileges changed for group: %s"), $a_group['name']);
+		write_config($savemsg);
+		syslog($logging_level, "{$logging_prefix}: {$savemsg}");
 
 		pfSenseHeader("system_groupmanager.php?act=edit&groupid={$groupid}");
 		exit;
@@ -145,7 +152,17 @@ if (isset($groupid)) {
 	));
 }
 
-$section = new Form_Section('Add Privileges for '. $a_group['name']);
+$section = new Form_Section('Group Privileges');
+
+$name_string = $a_group['name'];
+if (!empty($a_group['descr'])) {
+	$name_string .= " ({$a_group['descr']})";
+}
+
+$section->addInput(new Form_StaticText(
+	'Group',
+	$name_string
+));
 
 $section->addInput(new Form_Select(
 	'sysprivs',

@@ -3,7 +3,7 @@
  * system_usermanager_passwordmg.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,6 +30,9 @@ require_once("auth.inc");
 require_once("certs.inc");
 require_once("guiconfig.inc");
 
+$logging_level = LOG_WARNING;
+$logging_prefix = gettext("Local User Database");
+
 $pgtitle = array(gettext("System"), gettext("User Password"));
 
 if (isset($_POST['save'])) {
@@ -45,26 +48,22 @@ if (isset($_POST['save'])) {
 	}
 
 	if (!$input_errors) {
-		if (!session_id()) {
-			session_start();
-		}
+		phpsession_begin();
 		// all values are okay --> saving changes
 
 		$userent =& $config['system']['user'][$userindex[$_SESSION['Username']]];
 		local_user_set_password($userent, $_POST['passwordfld1']);
 		local_user_set($userent);
+		$savemsg = sprintf(gettext("Password changed for user: %s"), $userent['name']);
 		unset($userent);
-		session_commit();
+		phpsession_end(true);
 
-		write_config();
-
-		$savemsg = gettext("Password successfully changed.");
+		write_config($savemsg);
+		syslog($logging_level, "{$logging_prefix}: {$savemsg}");
 	}
 }
 
-if (!session_id()) {
-	session_start();
-}
+phpsession_begin();
 
 /* determine if user is not local to system */
 $islocal = false;
@@ -74,7 +73,7 @@ foreach ($config['system']['user'] as $user) {
 	}
 }
 
-session_commit();
+phpsession_end(true);
 
 include("head.inc");
 

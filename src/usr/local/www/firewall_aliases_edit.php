@@ -3,7 +3,7 @@
  * firewall_aliases_edit.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -41,28 +41,29 @@ if (isset($_POST['referer'])) {
 	$referer = (isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : '/firewall_aliases.php');
 }
 
-// Keywords not allowed in names
-$reserved_keywords = array("all", "pass", "block", "out", "queue", "max", "min", "pptp", "pppoe", "L2TP", "OpenVPN", "IPsec");
+// Keywords not allowed in names, see globals.inc for list.
+global $pf_reserved_keywords;
 
-// Add all Load balance names to reserved_keywords
+// Add all Load balance names to pf_reserved_keywords
 if (is_array($config['load_balancer']['lbpool'])) {
 	foreach ($config['load_balancer']['lbpool'] as $lbpool) {
-		$reserved_keywords[] = $lbpool['name'];
+		$pf_reserved_keywords[] = $lbpool['name'];
 	}
 }
 
-$reserved_ifs = get_configured_interface_list(false, true);
-$reserved_keywords = array_merge($reserved_keywords, $reserved_ifs, $reserved_table_names);
+$reserved_ifs = get_configured_interface_list(true);
+$pf_reserved_keywords = array_merge($pf_reserved_keywords, $reserved_ifs, $reserved_table_names);
 $max_alias_addresses = 5000;
+
+if (!is_array($config['aliases'])) {
+	$config['aliases'] = array();
+}
 
 if (!is_array($config['aliases']['alias'])) {
 	$config['aliases']['alias'] = array();
 }
-$a_aliases = &$config['aliases']['alias'];
 
-if ($_POST['save']) {
-	$origname = $_POST['origname'];
-}
+$a_aliases = &$config['aliases']['alias'];
 
 // Debugging
 if ($debug) {
@@ -124,6 +125,14 @@ if (isset($id) && $a_aliases[$id]) {
 	}
 }
 
+if ($_POST['save']) {
+	// Remember the original name on an attempt to save
+	$origname = $_POST['origname'];
+} else {
+	// Set the original name on edit (or add, when this will be blank)
+	$origname = $pconfig['name'];
+}
+
 $tab = $_REQUEST['tab'];
 
 if (empty($tab)) {
@@ -164,7 +173,7 @@ if ($_POST['save']) {
 	}
 
 	/* Check for reserved keyword names */
-	foreach ($reserved_keywords as $rk) {
+	foreach ($pf_reserved_keywords as $rk) {
 		if ($rk == $_POST['name']) {
 			$input_errors[] = sprintf(gettext("Cannot use a reserved keyword as an alias name: %s"), $rk);
 		}
@@ -196,6 +205,13 @@ if ($_POST['save']) {
 		}
 	}
 
+	/* To prevent infinite loops make sure the alias name does not equal the value. */
+	for($i = 0; isset($_POST['address' . $i]); $i++) {
+			if($_POST['address' . $i] == $_POST['name']){
+				$input_errors[] = gettext("Alias value cannot be the same as the alias name: `" . $_POST['name'] . " and " . $_POST['address' . $i] . "`");
+			}
+	}
+
 	$alias = array();
 	$address = array();
 	$final_address_details = array();
@@ -203,7 +219,7 @@ if ($_POST['save']) {
 	$alias['type'] = $_POST['type'];
 
 	if (preg_match("/urltable/i", $_POST['type'])) {
-		$address = "";
+		$address = array();
 
 		/* item is a url table type */
 		if ($_POST['address0']) {
@@ -468,31 +484,8 @@ if ($_POST['save']) {
 		/*	 Check to see if alias name needs to be
 		 *	 renamed on referenced rules and such
 		 */
-		if ($_POST['name'] <> $_POST['origname']) {
-			// Firewall rules
-			update_alias_names_upon_change(array('filter', 'rule'), array('source', 'address'), $_POST['name'], $origname);
-			update_alias_names_upon_change(array('filter', 'rule'), array('destination', 'address'), $_POST['name'], $origname);
-			update_alias_names_upon_change(array('filter', 'rule'), array('source', 'port'), $_POST['name'], $origname);
-			update_alias_names_upon_change(array('filter', 'rule'), array('destination', 'port'), $_POST['name'], $origname);
-			// NAT Rules
-			update_alias_names_upon_change(array('nat', 'rule'), array('source', 'address'), $_POST['name'], $origname);
-			update_alias_names_upon_change(array('nat', 'rule'), array('source', 'port'), $_POST['name'], $origname);
-			update_alias_names_upon_change(array('nat', 'rule'), array('destination', 'address'), $_POST['name'], $origname);
-			update_alias_names_upon_change(array('nat', 'rule'), array('destination', 'port'), $_POST['name'], $origname);
-			update_alias_names_upon_change(array('nat', 'rule'), array('target'), $_POST['name'], $origname);
-			update_alias_names_upon_change(array('nat', 'rule'), array('local-port'), $_POST['name'], $origname);
-			// NAT 1:1 Rules
-			//update_alias_names_upon_change(array('nat', 'onetoone'), array('external'), $_POST['name'], $origname);
-			//update_alias_names_upon_change(array('nat', 'onetoone'), array('source', 'address'), $_POST['name'], $origname);
-			update_alias_names_upon_change(array('nat', 'onetoone'), array('destination', 'address'), $_POST['name'], $origname);
-			// NAT Outbound Rules
-			update_alias_names_upon_change(array('nat', 'outbound', 'rule'), array('source', 'network'), $_POST['name'], $origname);
-			update_alias_names_upon_change(array('nat', 'outbound', 'rule'), array('sourceport'), $_POST['name'], $origname);
-			update_alias_names_upon_change(array('nat', 'outbound', 'rule'), array('destination', 'address'), $_POST['name'], $origname);
-			update_alias_names_upon_change(array('nat', 'outbound', 'rule'), array('dstport'), $_POST['name'], $origname);
-			update_alias_names_upon_change(array('nat', 'outbound', 'rule'), array('target'), $_POST['name'], $origname);
-			// Alias in an alias
-			update_alias_names_upon_change(array('aliases', 'alias'), array('address'), $_POST['name'], $origname);
+		if ($_POST['name'] <> $origname) {
+			update_alias_name($_POST['name'], $origname);
 		}
 
 		pfSense_handle_custom_code("/usr/local/pkg/firewall_aliases_edit/pre_write_config");
@@ -658,7 +651,7 @@ $form->addGlobal(new Form_Input(
 	'origname',
 	null,
 	'hidden',
-	$pconfig['name']
+	$origname
 ));
 
 if (isset($id) && $a_aliases[$id]) {

@@ -3,7 +3,7 @@
  * index.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -30,6 +30,10 @@
 ##|*MATCH=index.php*
 ##|-PRIV
 
+// Message to display if the session times out and an AJAX call is made
+$timeoutmessage = gettext("The dashboard web session has timed out.\\n" .
+	"It will not update until you refresh the page and log-in again.");
+
 // Turn on buffering to speed up rendering
 ini_set('output_buffering', 'true');
 
@@ -53,56 +57,26 @@ if (isset($_REQUEST['closenotice'])) {
 	sleep(1);
 }
 
-if ($g['disablecrashreporter'] != true) {
-	// Check to see if we have a crash report
-	$x = 0;
-	if (file_exists("/tmp/PHP_errors.log")) {
-		$total = `/bin/cat /tmp/PHP_errors.log | /usr/bin/wc -l | /usr/bin/awk '{ print $1 }'`;
-		if ($total > 0) {
-			$x++;
-		}
+if (($g['disablecrashreporter'] != true) && (system_has_crash_data() || system_has_php_errors())) {
+	$savemsg = sprintf(gettext("%s has detected a crash report or programming bug."), $g['product_name']) . " ";
+	if (isAllowedPage("/crash_reporter.php")) {
+		$savemsg .= sprintf(gettext('Click %1$shere%2$s for more information.'), '<a href="crash_reporter.php">', '</a>');
+	} else {
+		$savemsg .= sprintf(gettext("Contact a firewall administrator for more information."));
 	}
-
-	$crash = glob("/var/crash/*");
-	$skip_files = array(".", "..", "minfree", "");
-
-	if (is_array($crash)) {
-		foreach ($crash as $c) {
-			if (!in_array(basename($c), $skip_files)) {
-				$x++;
-			}
-		}
-
-		if ($x > 0) {
-			$savemsg = sprintf(gettext("%s has detected a crash report or programming bug."), $g['product_name']) . " ";
-			if (isAllowedPage("/crash_reporter.php")) {
-				$savemsg .= sprintf(gettext('Click %1$shere%2$s for more information.'), '<a href="crash_reporter.php">', '</a>');
-			} else {
-				$savemsg .= sprintf(gettext("Contact a firewall administrator for more information."));
-			}
-			$class = "warning";
-		}
-	}
+	$class = "warning";
 }
 
-##build list of php include files
-$phpincludefiles = array();
+## Include each widget php include file.
+## These define vars that specify the widget title and title link.
+
 $directory = "/usr/local/www/widgets/include/";
 $dirhandle = opendir($directory);
 $filename = "";
 
-while (false !== ($filename = readdir($dirhandle))) {
-	if (!stristr($filename, ".inc")) {
-		continue;
-	}
-	$phpincludefiles[] = $filename;
-}
-
-## Include each widget include file.
-## These define vars that specify the widget title and title link.
-foreach ($phpincludefiles as $includename) {
-	if (file_exists($directory . $includename)) {
-		include_once($directory . $includename);
+while (($filename = readdir($dirhandle)) !== false) {
+	if (strtolower(substr($filename, -4)) == ".inc" && file_exists($directory . $filename)) {
+		include_once($directory . $filename);
 	}
 }
 
@@ -117,13 +91,19 @@ foreach (glob("/usr/local/www/widgets/widgets/*.widget.php") as $file) {
 		$widgettitle = ucwords(str_replace('_', ' ', $basename));
 	}
 
-	$known_widgets[$basename . '-0'] = array('basename' => $basename, 'title' => $widgettitle, 'display' => 'none');
+	$known_widgets[$basename . '-0'] = array(
+		'basename' => $basename,
+		'title' => $widgettitle,
+		'display' => 'none',
+		'multicopy' => ${$basename . '_allow_multiple_widget_copies'}
+	);
 }
 
 ##if no config entry found, initialize config entry
 if (!is_array($config['widgets'])) {
 	$config['widgets'] = array();
 }
+
 if (!is_array($user_settings['widgets'])) {
 	$user_settings['widgets'] = array();
 }
@@ -143,6 +123,9 @@ if ($_POST && $_POST['sequence']) {
 		list($basename, $col, $display, $widget_counter) = explode(':', $widget_seq_data);
 
 		if ($widget_counter != 'next') {
+			if (!is_numeric($widget_counter)) {
+				continue;
+			}
 			$widget_counter_array[$basename][$widget_counter] = true;
 			$widget_sequence .= $widget_sep . $widget_seq_data;
 			$widget_sep = ',';
@@ -199,47 +182,31 @@ if (file_exists("/usr/sbin/swapinfo")) {
 	if (stristr($swapinfo, '%') == true) $showswap=true;
 }
 
-## User recently restored his config.
-## If packages are installed lets resync
-if (file_exists('/conf/needs_package_sync')) {
-	if ($config['installedpackages'] <> '' && is_array($config['installedpackages']['package'])) {
-		## If the user has logged into webGUI quickly while the system is booting then do not redirect them to
-		## the package reinstall page. That is about to be done by the boot script anyway.
-		## The code in head.inc will put up a notice to the user.
-		if (!platform_booting()) {
-			header('Location: pkg_mgr_install.php?mode=reinstallall');
-			exit;
-		}
-	} else {
-		@unlink('/conf/needs_package_sync');
-	}
-}
-
 ## If it is the first time webConfigurator has been
 ## accessed since initial install show this stuff.
 if (file_exists('/conf/trigger_initial_wizard')) {
 ?>
 <!DOCTYPE html>
 <html lang="en">
-<head>
-	<link rel="stylesheet" href="/css/pfSense.css" />
-	<title><?=$g['product_name']?>.localdomain - <?=$g['product_name']?> first time setup</title>
-	<meta http-equiv="refresh" content="1;url=wizard.php?xml=setup_wizard.xml" />
-</head>
-<body id="loading-wizard" class="no-menu">
-	<div id="jumbotron">
-		<div class="container">
-			<div class="col-sm-offset-3 col-sm-6 col-xs-12">
-				<font color="white">
-				<p><h3><?=sprintf(gettext("Welcome to %s!") . "\n", $g['product_name'])?></h3></p>
-				<p><?=gettext("One moment while the initial setup wizard starts.")?></p>
-				<p><?=gettext("Embedded platform users: Please be patient, the wizard takes a little longer to run than the normal GUI.")?></p>
-				<p><?=sprintf(gettext("To bypass the wizard, click on the %s logo on the initial page."), $g['product_name'])?></p>
-				</font>
+	<head>
+		<link rel="stylesheet" href="/css/pfSense.css" />
+		<title><?=$g['product_name']?>.localdomain - <?=$g['product_name']?> first time setup</title>
+		<meta http-equiv="refresh" content="1;url=wizard.php?xml=setup_wizard.xml" />
+	</head>
+	<body id="loading-wizard" class="no-menu">
+		<div id="jumbotron">
+			<div class="container">
+				<div class="col-sm-offset-3 col-sm-6 col-xs-12">
+					<font color="white">
+					<p><h3><?=sprintf(gettext("Welcome to %s!") . "\n", $g['product_name'])?></h3></p>
+					<p><?=gettext("One moment while the initial setup wizard starts.")?></p>
+					<p><?=gettext("Embedded platform users: Please be patient, the wizard takes a little longer to run than the normal GUI.")?></p>
+					<p><?=sprintf(gettext("To bypass the wizard, click on the %s logo on the initial page."), $g['product_name'])?></p>
+					</font>
+				</div>
 			</div>
 		</div>
-	</div>
-</body>
+	</body>
 </html>
 <?php
 	exit;
@@ -268,7 +235,7 @@ if ($fd) {
 
 ##build widget saved list information
 if ($user_settings['widgets']['sequence'] != "") {
-	$dashboardcolumns = isset($user_settings['webgui']['dashboardcolumns']) ? $user_settings['webgui']['dashboardcolumns'] : 2;
+	$dashboardcolumns = isset($user_settings['webgui']['dashboardcolumns']) ? (int) $user_settings['webgui']['dashboardcolumns'] : 2;
 	$pconfig['sequence'] = $user_settings['widgets']['sequence'];
 	$widgetsfromconfig = array();
 
@@ -281,6 +248,9 @@ if ($user_settings['widgets']['sequence'] != "") {
 		}
 
 		list($basename, $col, $display, $copynum) = $line_items;
+		if (!is_numeric($copynum)) {
+			continue;
+		}
 
 		// be backwards compatible
 		// If the display column information is missing, we will assign a temporary
@@ -302,16 +272,19 @@ if ($user_settings['widgets']['sequence'] != "") {
 		if (false !== $offset) {
 			$basename = substr($basename, 0, $offset);
 		}
-
-		// Get the widget title that should be in a var defined in the widget's inc file.
-		$widgettitle = ${$basename . '_title'};
-
-		if (empty(trim($widgettitle))) {
-			// Fall back to constructing a title from the file name of the widget.
-			$widgettitle = ucwords(str_replace('_', ' ', $basename));
-		}
-
 		$widgetkey = $basename . '-' . $copynum;
+
+		if (isset($user_settings['widgets'][$widgetkey]['descr'])) {
+			$widgettitle = htmlentities($user_settings['widgets'][$widgetkey]['descr']);
+		} else {
+			// Get the widget title that should be in a var defined in the widget's inc file.
+			$widgettitle = ${$basename . '_title'};
+
+			if (empty(trim($widgettitle))) {
+				// Fall back to constructing a title from the file name of the widget.
+				$widgettitle = ucwords(str_replace('_', ' ', $basename));
+			}
+		}
 
 		$widgetsfromconfig[$widgetkey] = array(
 			'basename' => $basename,
@@ -319,7 +292,11 @@ if ($user_settings['widgets']['sequence'] != "") {
 			'col' => $col,
 			'display' => $display,
 			'copynum' => $copynum,
+			'multicopy' => ${$basename . '_allow_multiple_widget_copies'}
 		);
+
+		// Update the known_widgets entry so we know if any copy of the widget is being displayed
+		$known_widgets[$basename . '-0']['display'] = $display;
 	}
 
 	// add widgets that may not be in the saved configuration, in case they are to be displayed later
@@ -376,10 +353,16 @@ $available = $known_widgets;
 uasort($available, function($a, $b){ return strcasecmp($a['title'], $b['title']); });
 
 foreach ($available as $widgetkey => $widgetconfig):
+	// If the widget supports multiple copies, or no copies are displayed yet, then it is available to add
+	if (($widgetconfig['multicopy']) || ($widgetconfig['display'] == 'none')):
 ?>
 		<div class="col-sm-3"><a href="#" id="btnadd-<?=$widgetconfig['basename']?>"><i class="fa fa-plus"></i> <?=$widgetconfig['title']?></a></div>
-<?php endforeach; ?>
+	<?php endif; ?>
+<?php
+endforeach;
+?>
 			</div>
+<p style="text-align:center"><?=sprintf(gettext('Other dashboard settings are available from the <a href="%s">General Setup</a> page.'), '/system.php')?></p>
 		</div>
 	</div>
 </div>
@@ -393,19 +376,12 @@ foreach ($available as $widgetkey => $widgetconfig):
 <?php
 $widgetColumns = array();
 foreach ($widgets as $widgetkey => $widgetconfig) {
-	if ($widgetconfig['display'] == 'none') {
-		continue;
+	if ($widgetconfig['display'] != 'none' && file_exists("/usr/local/www/widgets/widgets/{$widgetconfig['basename']}.widget.php")) {
+		if (!isset($widgetColumns[$widgetconfig['col']])) {
+			$widgetColumns[$widgetconfig['col']] = array();
+		}
+		$widgetColumns[$widgetconfig['col']][$widgetkey] = $widgetconfig;
 	}
-
-	if (!file_exists('/usr/local/www/widgets/widgets/'. $widgetconfig['basename'].'.widget.php')) {
-		continue;
-	}
-
-	if (!isset($widgetColumns[$widgetconfig['col']])) {
-		$widgetColumns[$widgetconfig['col']] = array();
-	}
-
-	$widgetColumns[$widgetconfig['col']][$widgetkey] = $widgetconfig;
 }
 ?>
 
@@ -483,6 +459,29 @@ foreach ($widgets as $widgetkey => $widgetconfig) {
 ?>
 
 </div>
+
+<?php
+/*
+ * Import the modal form used to display the copyright/usage information
+ * when trigger file exists. Trigger file is created during upgrade process
+ * when /etc/version changes
+ */
+require_once("copyget.inc");
+
+if (file_exists("{$g['cf_conf_path']}/copynotice_display")) {
+	require_once("copynotice.inc");
+	@unlink("{$g['cf_conf_path']}/copynotice_display");
+}
+
+/*
+ * Import the modal form used to display any HTML text a package may want to display
+ * on installation or removal
+ */
+$ui_notice = "/tmp/package_ui_notice";
+if (file_exists($ui_notice)) {
+	require_once("{$g['www_path']}/upgrnotice.inc");
+}
+?>
 
 <script type="text/javascript">
 //<![CDATA[
@@ -563,8 +562,20 @@ function set_widget_checkbox_events(checkbox_panel_ref, all_none_button_id) {
 		});
 }
 
-events.push(function() {
+// ---------------------Centralized widget refresh system -------------------------------------------
+// These need to live outsie of the events.push() function to enable the widgets to see them
+var ajaxspecs = new Array();	// Array to hold widget refresh specifications (objects )
+var ajaxidx = 0;
+var ajaxmutex = false;
+var ajaxcntr = 0;
 
+// Add a widget refresh object to the array list
+function register_ajax(ws) {
+  ajaxspecs.push(ws);
+}
+// ---------------------------------------------------------------------------------------------------
+
+events.push(function() {
 	// Make panels destroyable
 	$('.container .panel-heading a[data-toggle="close"]').each(function (idx, el) {
 		$(el).on('click', function(e) {
@@ -619,13 +630,79 @@ events.push(function() {
 			$('#btnstore').removeClass("invisible");
 		}
 	});
+
+	// --------------------- Centralized widget refresh system ------------------------------
+	ajaxtimeout = false;
+
+	function make_ajax_call(wd) {
+		ajaxmutex = true;
+
+		$.ajax({
+			type: 'POST',
+			url: wd.url,
+			dataType: 'html',
+			data: wd.parms,
+
+			success: function(data){
+				if (data.length > 0 ) {
+					// If the session has timed out, display a pop-up
+					if (data.indexOf("SESSION_TIMEOUT") === -1) {
+						wd.callback(data);
+					} else {
+						if (ajaxtimeout === false) {
+							ajaxtimeout = true;
+							alert("<?=$timeoutmessage?>");
+						}
+					}
+				}
+
+				ajaxmutex = false;
+			},
+
+			error: function(e){
+//				alert("Error: " + e);
+				ajaxmutex = false;
+			}
+		});
+	}
+
+	// Loop through each AJAX widget refresh object, make the AJAX call and pass the
+	// results back to the widget's callback function
+	function executewidget() {
+		if (ajaxspecs.length > 0) {
+			var freq = ajaxspecs[ajaxidx].freq;	// widget can specifify it should be called freq times around hte loop
+
+			if (!ajaxmutex) {
+				if (((ajaxcntr % freq) === 0) && (typeof ajaxspecs[ajaxidx].callback === "function" )) {
+				    make_ajax_call(ajaxspecs[ajaxidx]);
+				}
+
+			    if (++ajaxidx >= ajaxspecs.length) {
+					ajaxidx = 0;
+
+					if (++ajaxcntr >= 4096) {
+						ajaxcntr = 0;
+					}
+			    }
+			}
+
+		    setTimeout(function() { executewidget(); }, 1000);
+	  	}
+	}
+
+	// Kick it off
+	executewidget();
+
+	//----------------------------------------------------------------------------------------------------
 });
 //]]>
 </script>
+
 <?php
 //build list of javascript include files
 foreach (glob('widgets/javascript/*.js') as $file) {
-	echo '<script src="'.$file.'"></script>';
+	$mtime = filemtime("/usr/local/www/{$file}");
+	echo '<script src="'.$file.'?v='.$mtime.'"></script>';
 }
 
 include("foot.inc");

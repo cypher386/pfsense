@@ -3,7 +3,7 @@
  * diag_tables.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,11 +31,17 @@ $shortcut_section = "aliases";
 
 require_once("guiconfig.inc");
 
-// Set default table
-$tablename = "sshlockout";
+exec("/sbin/pfctl -sT", $tables);
 
-if ($_REQUEST['type']) {
+// Set default table
+$tablename = "sshguard";
+
+if ($_REQUEST['type'] && in_array($_REQUEST['type'], $tables)) {
 	$tablename = $_REQUEST['type'];
+} else {
+	/* Invalid 'type' passed, do not take any actions that use the 'type' field. */
+	unset($_REQUEST['type']);
+	$_REQUEST['delete'];
 }
 
 // Gather selected alias metadata.
@@ -112,7 +118,6 @@ if ($_POST['Download'] && ($bogons || $urltable)) {
 }
 
 exec("/sbin/pfctl -t " . escapeshellarg($tablename) . " -T show", $entries);
-exec("/sbin/pfctl -sT", $tables);
 
 include("head.inc");
 
@@ -229,7 +234,7 @@ events.push(function() {
 			{
 				type: 'post',
 				data: {
-					type: '<?=htmlspecialchars($tablename)?>',
+					type: '<?=htmlspecialchars(addslashes($tablename))?>',
 					delete: $(this).data('entry')
 				},
 				success: function() {

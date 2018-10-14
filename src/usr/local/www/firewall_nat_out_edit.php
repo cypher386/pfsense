@@ -3,7 +3,7 @@
  * firewall_nat_out_edit.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -35,6 +35,9 @@ require_once("ipsec.inc");
 require_once("filter.inc");
 require_once("shaper.inc");
 
+if (!is_array($config['nat'])) {
+	$config['nat'] = array();
+}
 if (!is_array($config['nat']['outbound'])) {
 	$config['nat']['outbound'] = array();
 }
@@ -44,6 +47,10 @@ if (!is_array($config['nat']['outbound']['rule'])) {
 }
 
 $a_out = &$config['nat']['outbound']['rule'];
+
+if (!is_array($config['aliases'])) {
+	$config['aliases'] = array();
+}
 
 if (!is_array($config['aliases']['alias'])) {
 	$config['aliases']['alias'] = array();
@@ -73,6 +80,7 @@ if (isset($id) && $a_out[$id]) {
 		$pconfig['updated'] = $a_out[$id]['updated'];
 	}
 
+	$pconfig['ipprotocol'] = $a_out[$id]['ipprotocol'];
 	$pconfig['protocol'] = $a_out[$id]['protocol'];
 	list($pconfig['source'], $pconfig['source_subnet']) = explode('/', $a_out[$id]['source']['network']);
 	if (!is_numeric($pconfig['source_subnet'])) {
@@ -330,6 +338,12 @@ if ($_POST['save']) {
 			unset($natent['nonat']);
 		}
 
+		if ($_POST['ipprotocol'] && $_POST['ipprotocol'] != "inet46") {
+			$natent['ipprotocol'] = $_POST['ipprotocol'];
+		} else {
+			unset($natent['ipprotocol']);
+		}
+		
 		if ($_POST['protocol'] && $_POST['protocol'] != "any") {
 			$natent['protocol'] = $_POST['protocol'];
 		} else {
@@ -472,40 +486,23 @@ $section->addInput(new Form_Checkbox(
 	isset($pconfig['nonat'])
 ))->setHelp('In most cases this option is not required.');
 
-$iflist = get_configured_interface_with_descr(false, true);
-
-foreach ($iflist as $if => $ifdesc) {
-	if (have_ruleint_access($if)) {
-		$interfaces[$if] = $ifdesc;
-	}
-}
-
-if ($config['l2tp']['mode'] == "server") {
-	if (have_ruleint_access("l2tp")) {
-		$interfaces['l2tp'] = "L2TP VPN";
-	}
-}
-
-if (is_pppoe_server_enabled() && have_ruleint_access("pppoe")) {
-	$interfaces['pppoe'] = "PPPoE Server";
-}
-
-/* add ipsec interfaces */
-if (ipsec_enabled() && have_ruleint_access("enc0")) {
-	$interfaces["enc0"] = "IPsec";
-}
-
-/* add openvpn/tun interfaces */
-if ($config['openvpn']["openvpn-server"] || $config['openvpn']["openvpn-client"]) {
-	$interfaces["openvpn"] = "OpenVPN";
-}
-
 $section->addInput(new Form_Select(
 	'interface',
 	'*Interface',
 	$pconfig['interface'],
-	$interfaces
+	create_interface_list()
 ))->setHelp('The interface on which traffic is matched as it exits the firewall. In most cases this is "WAN" or another externally-connected interface.');
+
+$section->addInput(new Form_Select(
+	'ipprotocol',
+	'*Address Family',
+	$pconfig['ipprotocol'],
+	array(
+		'inet' => 'IPv4',
+		'inet6' => 'IPv6',
+		'' => 'IPv4+IPv6',
+	)
+))->setHelp('Select the Internet Protocol version this rule applies to.');
 
 $protocols = "any TCP UDP TCP/UDP ICMP ESP AH GRE IPV6 IGMP carp pfsync";
 
@@ -684,34 +681,7 @@ $section->addInput(new Form_Input(
 
 $form->add($section);
 
-$has_created_time = (isset($a_out[$id]['created']) && is_array($a_out[$id]['created']));
-$has_updated_time = (isset($a_out[$id]['updated']) && is_array($a_out[$id]['updated']));
-
-if ($has_created_time || $has_updated_time) {
-	$section = new Form_Section('Rule Information');
-
-	if ($has_created_time) {
-		$section->addInput(new Form_StaticText(
-			'Created',
-			sprintf(
-				gettext('%1$s by %2$s'),
-				date(gettext("n/j/y H:i:s"), $a_out[$id]['created']['time']),
-				$a_out[$id]['created']['username'])
-		));
-	}
-
-	if ($has_updated_time) {
-		$section->addInput(new Form_StaticText(
-			'Updated',
-			sprintf(
-				gettext('%1$s by %2$s'),
-				date(gettext("n/j/y H:i:s"), $a_out[$id]['updated']['time']),
-				$a_out[$id]['updated']['username'])
-		));
-	}
-
-	$form->add($section);
-}
+gen_created_updated_fields($form, $a_out[$id]['created'], $a_out[$id]['updated']);
 
 print($form);
 

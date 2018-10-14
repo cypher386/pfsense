@@ -3,7 +3,7 @@
  * priv.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2005-2006 Bill Marquette <bill.marquette@gmail.com>
  * Copyright (c) 2006 Paul Taylor <paultaylor@winn-dixie.com>.
  * Copyright (c) 2008 Shrew Soft Inc
@@ -24,6 +24,7 @@
  */
 
 require_once("priv.defs.inc");
+require_once("auth_func.inc");
 
 /* Load and process custom privs. */
 function get_priv_files($directory) {
@@ -87,41 +88,6 @@ function cmp_privkeys($a, $b) {
 
 function sort_privs(& $privs) {
 	uksort($privs, "cmp_privkeys");
-}
-
-function cmp_page_matches($page, & $matches, $fullwc = true) {
-
-//	$dbg_matches = implode(",", $matches);
-//	log_error("debug: checking page {$page} match with {$dbg_matches}");
-
-	if (!is_array($matches)) {
-		return false;
-	}
-
-	/* skip any leading fwdslash */
-	$test = strpos($page, "/");
-	if ($test !== false && $test == 0) {
-		$page = substr($page, 1);
-	}
-
-	/* look for a match */
-	foreach ($matches as $match) {
-
-		/* possibly ignore full wildcard match */
-		if (!$fullwc && !strcmp($match , "*")) {
-			continue;
-		}
-
-		/* compare exact or wildcard match */
-		$match = str_replace(array(".", "*", "?"), array("\.", ".*", "\?"), $match);
-		$result = preg_match("@^/{$match}$@", "/{$page}");
-
-		if ($result) {
-			return true;
-		}
-	}
-
-	return false;
 }
 
 function map_page_privname($page) {
@@ -275,6 +241,7 @@ function getAllowedPages($username, &$attributes = array()) {
 	$allowed_pages = array();
 	$allowed_groups = array();
 
+ 	phpsession_begin();
 	if ($_SESSION['remoteauth']) {
 		$authcfg = auth_get_authserver($config['system']['webgui']['authmode']);
 		// cache auth results for a short time to ease load on auth services & logs
@@ -331,7 +298,7 @@ function getAllowedPages($username, &$attributes = array()) {
 //	log_error("debug: user {$username} pages = {$dbg_pages}");
 
 	$_SESSION['page-match'] = $allowed_pages;
-
+	phpsession_end(true);
 	return $allowed_pages;
 }
 

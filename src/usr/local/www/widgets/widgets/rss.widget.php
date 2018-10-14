@@ -3,7 +3,7 @@
  * rss.widget.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,13 +19,12 @@
  * limitations under the License.
  */
 
-$nocsrf = true;
-
 require_once("guiconfig.inc");
 require_once("pfsense-utils.inc");
 require_once("functions.inc");
 
 if ($_POST['widgetkey']) {
+	set_customwidgettitle($user_settings);
 	$user_settings['widgets'][$_POST['widgetkey']]['rssfeed'] = str_replace("\n", ",", htmlspecialchars($_POST['rssfeed'], ENT_QUOTES | ENT_HTML401));
 	$user_settings['widgets'][$_POST['widgetkey']]['rssmaxitems'] = str_replace("\n", ",", htmlspecialchars($_POST['rssmaxitems'], ENT_QUOTES | ENT_HTML401));
 	$user_settings['widgets'][$_POST['widgetkey']]['rsswidgetheight'] = htmlspecialchars($_POST['rsswidgetheight'], ENT_QUOTES | ENT_HTML401);
@@ -109,7 +108,6 @@ if ($user_settings['widgets'][$widgetkey]['rssfeed']) {
 ?>
 	<a href="<?=$item->get_permalink()?>" target="_blank" class="list-group-item">
 		<h4 class="list-group-item-heading">
-			<img src="pfs-mini.png" title="Source: <?=$feed->get_title()?>" alt="" width="16" height="16" />
 			<?=$item->get_title()?>
 		</h4>
 		<p class="list-group-item-text">
@@ -127,30 +125,31 @@ if ($user_settings['widgets'][$widgetkey]['rssfeed']) {
 </div><div id="<?=$widget_panel_footer_id?>" class="panel-footer collapse">
 
 <form action="/widgets/widgets/rss.widget.php" method="post" class="form-horizontal">
-	<input type="hidden" name="widgetkey" value="<?=$widgetkey; ?>">
+	<input type="hidden" name="widgetkey" value="<?=htmlspecialchars($widgetkey); ?>">
+	<?=gen_customwidgettitle_div($widgetconfig['title']); ?>
 	<div class="form-group">
-		<label for="rssfeed" class="col-sm-3 control-label"><?=gettext('Feeds')?></label>
+		<label for="rssfeed" class="col-sm-4 control-label"><?=gettext('Feeds')?></label>
 		<div class="col-sm-6">
 			<textarea id="rssfeed" name="rssfeed" class="form-control"><?=$textarea_txt;?></textarea>
 		</div>
 	</div>
 
 	<div class="form-group">
-		<label for="rssmaxitems" class="col-sm-3 control-label"><?=gettext('# Stories')?></label>
+		<label for="rssmaxitems" class="col-sm-4 control-label"><?=gettext('# Stories')?></label>
 		<div class="col-sm-6">
 			<input type="number" id="rssmaxitems" name="rssmaxitems" value="<?=$max_items?>" min="1" max="100" class="form-control" />
 		</div>
 	</div>
 
 	<div class="form-group">
-		<label for="rsswidgetheight" class="col-sm-3 control-label"><?=gettext('Widget height')?></label>
+		<label for="rsswidgetheight" class="col-sm-4 control-label"><?=gettext('Widget height')?></label>
 		<div class="col-sm-6">
 			<input type="number" id="rsswidgetheight" name="rsswidgetheight" value="<?=$rsswidgetheight?>" min="100" max="2500" step="100" class="form-control" />
 		</div>
 	</div>
 
 	<div class="form-group">
-		<label for="rsswidgettextlength" class="col-sm-3 control-label"><?=gettext('Content limit')?></label>
+		<label for="rsswidgettextlength" class="col-sm-4 control-label"><?=gettext('Content limit')?></label>
 		<div class="col-sm-6">
 			<input type="number" id="rsswidgettextlength" name="rsswidgettextlength" value="<?=$rsswidgettextlength?>" min="100" max="5000" step="10" class="form-control" />
 		</div>

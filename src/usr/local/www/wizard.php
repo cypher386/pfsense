@@ -3,7 +3,7 @@
  * wizard.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -72,9 +72,7 @@ if (!is_array($pkg)) {
 	die;
 }
 
-$title	   = preg_replace("/pfSense/i", $g['product_name'], $pkg['step'][$stepid]['title']);
-$description = preg_replace("/pfSense/i", $g['product_name'], $pkg['step'][$stepid]['description']);
-$totalsteps	 = $pkg['totalsteps'];
+$totalsteps = $pkg['totalsteps'];
 
 if ($pkg['includefile']) {
 	require_once($pkg['includefile']);
@@ -120,9 +118,36 @@ if ($_POST && !$input_errors) {
 	}
 
 	$stepid++;
-	if ($stepid > $totalsteps) {
-		$stepid = $totalsteps;
+}
+
+while (!empty($pkg['step'][$stepid]['skip_flavors'])) {
+	$skip = false;
+	foreach (explode(',', $pkg['step'][$stepid]['skip_flavors']) as $flavor) {
+		if ($flavor == $g['default-config-flavor']) {
+			$skip = true;
+			break;
+		}
 	}
+	if ($skip) {
+		$stepid++;
+	} else {
+		break;
+	}
+}
+
+if ($stepid > $totalsteps) {
+	$stepid = $totalsteps;
+}
+
+// Convert a string containing a text version of a PHP array into a real $config array
+// that can then be created. e.g.: config_array_from_str("['apple']['orange']['pear']['bannana']");
+function config_array_from_str( $text) {
+	$t = str_replace("[", "", $text);	// Remove '['
+	$t = str_replace("'", "", $t);		// Remove '
+	$t = str_replace("\"", "", $t);		// Remove "
+	$t = str_replace("]", " ", $t);		// Convert ] to space
+	$a = explode(" ", trim($t));
+	init_config_arr($a);
 }
 
 function update_config_field($field, $updatetext, $unset, $arraynum, $field_type) {
@@ -162,13 +187,22 @@ function update_config_field($field, $updatetext, $unset, $arraynum, $field_type
 		$text = "unset(\$config" . $field_conv . ");";
 		eval($text);
 	}
+
+	// Verify that the needed $config element exists. If not, create it
+	$tsttext = 'return (isset($config' . $field_conv . '));';
+
+	if (!eval($tsttext)) {
+		config_array_from_str($field_conv);
+	}
+
 	$text .= "\$thisvar = &\$config" . $field_conv . ";";
 	eval($text);
+
 	$thisvar = $updatetext;
 }
 
-$title	   = preg_replace("/pfSense/i", $g['product_name'], $pkg['step'][$stepid]['title']);
-$description = preg_replace("/pfSense/i", $g['product_name'], $pkg['step'][$stepid]['description']);
+$title	   = $pkg['step'][$stepid]['title'];
+$description = $pkg['step'][$stepid]['description'];
 
 // handle before form display event.
 do {
@@ -409,13 +443,16 @@ if ($_REQUEST['message'] != "") {
 }
 
 $completion = ($stepid == 0) ? 0:($stepid * 100) / ($totalsteps -1);
+$pbclass = ($completion == 100) ? "progress-bar progress-bar-success":"progress-bar progress-bar-danger";
 ?>
 
 <!-- Draw a progress bar to show step progress -->
 <div class="progress">
-	<div class="progress-bar" role="progressbar" aria-valuenow="<?=$completion?>" aria-valuemin="0" aria-valuemax="100" style="width:<?=$completion?>%">
+	<div class="<?=$pbclass?>" role="progressbar" aria-valuenow="<?=$completion?>" aria-valuemin="0" aria-valuemax="100" style="width:<?=$completion?>%; line-height: 15px;">
+		<?php print(sprintf(gettext("Step %s of %s"), $stepid, $totalsteps-1)); ?>
 	</div>
 </div>
+<br />
 
 <?php
 
@@ -627,6 +664,10 @@ if ($pkg['step'][$stepid]['fields']['field'] != "") {
 					$options[$field['add_to_certca_selection']] = $field['add_to_certca_selection'];
 				}
 
+				if (!is_array($config['ca'])) {
+					$config['ca'] = array();
+				}
+
 				foreach ($config['ca'] as $ca) {
 					$caname = htmlspecialchars($ca['descr']);
 
@@ -670,6 +711,10 @@ if ($pkg['step'][$stepid]['fields']['field'] != "") {
 					}
 
 					$options[$field['add_to_cert_selection']] = $field['add_to_cert_selection'];
+				}
+
+				if (!is_array($config['cert'])) {
+					$config['cert'] = array();
 				}
 
 				foreach ($config['cert'] as $ca) {

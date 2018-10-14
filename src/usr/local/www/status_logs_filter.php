@@ -3,7 +3,7 @@
  * status_logs_filter.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -124,7 +124,7 @@ filter_form_firewall();
 
 // Now the forms are complete we can draw the log table and its controls
 if (!$rawfilter) {
-	$iflist = get_configured_interface_with_descr(false, true);
+	$iflist = get_configured_interface_with_descr(true);
 
 	if ($iflist[$interfacefilter]) {
 		$interfacefilter = $iflist[$interfacefilter];
@@ -327,7 +327,7 @@ events.push(function() {
 
 <div class="infoblock">
 <?php
-print_info_box('<a href="https://doc.pfsense.org/index.php/What_are_TCP_Flags%3F">' .
+print_info_box('<a href="https://doc.pfsense.org/index.php/What_are_TCP_Flags">' .
 	gettext("TCP Flags") . '</a>: F - FIN, S - SYN, A or . - ACK, R - RST, P - PSH, U - URG, E - ECE, C - CWR.' . '<br />' .
 	'<i class="fa fa-minus-square-o icon-primary"></i> = ' . gettext('Add to block list') . ', <i class="fa fa-plus-square-o icon-primary"></i> = ' . gettext('Pass traffic') . ', <i class="fa fa-info icon-primary"></i> = ' . gettext('Resolve'), 'info', false);
 ?>

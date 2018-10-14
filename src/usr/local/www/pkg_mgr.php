@@ -3,7 +3,7 @@
  * pkg_mgr.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2013 Marcello Coutinho
  * All rights reserved.
  *
@@ -43,17 +43,16 @@ if (is_subsystem_dirty('packagelock')) {
 	exit;
 }
 
-// We are being called only to get the pacakge data, not to display anything
+// We are being called only to get the package data, not to display anything
 if (($_REQUEST) && ($_REQUEST['ajax'])) {
 	print(get_pkg_table());
 	exit;
 }
 
-// THe content for the table of packages is created here and fetched by Ajax. This allows us to draw the page and dispay
-// any required messages while the table it being downloaded/populated. On very small/slow systems, that can take a while
+// The content for the table of packages is created here and fetched by Ajax. This allows us to draw the page and display
+// any required messages while the table is being downloaded/populated. On very small/slow systems, that can take a while
 function get_pkg_table() {
-
-	$pkg_info = get_pkg_info();
+	$pkg_info = get_pkg_info('all', true, false);
 
 	if (!$pkg_info) {
 		print("error");
@@ -72,7 +71,8 @@ function get_pkg_table() {
 	$pkgtbl .= 		'<tbody>' . "\n";
 
 	foreach ($pkg_info as $index) {
-		if (isset($index['installed'])) {
+		//AutoConfigBackup not to be installed >= v 2.4.4
+		if (isset($index['installed']) || ($index['shortname'] == "AutoConfigBackup")) {
 			continue;
 		}
 
@@ -249,7 +249,7 @@ events.push(function() {
 	    }
 	});
 
-	// Retrieve the table formatted pacakge information and display it in the "Packages" panel
+	// Retrieve the table formatted package information and display it in the "Packages" panel
 	// (Or display an appropriate error message)
 	var ajaxRequest;
 

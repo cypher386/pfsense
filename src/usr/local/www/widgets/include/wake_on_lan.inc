@@ -3,7 +3,7 @@
  * wake_on_lan.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,5 +23,6 @@
 //set variable for custom title
 $wake_on_lan_title = gettext("Wake-on-Lan");
 $wake_on_lan_title_link = "services_wol.php";
+$wake_on_lan_allow_multiple_widget_copies = true;
 
 ?>

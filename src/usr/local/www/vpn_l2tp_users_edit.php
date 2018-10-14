@@ -3,7 +3,7 @@
  * vpn_l2tp_users_edit.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -45,6 +45,7 @@ function l2tp_users_sort() {
 }
 
 require_once("guiconfig.inc");
+require_once("pfsense-utils.inc");
 require_once("vpn.inc");
 
 if (!is_array($config['l2tp']['user'])) {
@@ -85,10 +86,11 @@ if ($_POST['save']) {
 		$input_errors[] = gettext("The username contains invalid characters.");
 	}
 
+/*	Per Redmine #7623 - Allow any characters in password
 	if (preg_match("/[^a-zA-Z0-9\.\-_]/", $_POST['passwordfld'])) {
 		$input_errors[] = gettext("The password contains invalid characters.");
 	}
-
+*/
 	if (($_POST['passwordfld']) && ($_POST['passwordfld'] != $_POST['passwordfld_confirm'])) {
 		$input_errors[] = gettext("The passwords do not match.");
 	}

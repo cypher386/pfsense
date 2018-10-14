@@ -3,7 +3,7 @@
  * config.lib.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2009 Erik Kristensen
  * All rights reserved.
  *
@@ -337,9 +337,6 @@ function convert_config() {
 			}
 		}
 	}
-	if ($config['version'] == $g['latest_config']) {
-		return;		/* already at latest version */
-	}
 
 	// Save off config version
 	$prev_version = $config['version'];
@@ -349,17 +346,37 @@ function convert_config() {
 	if (file_exists("/etc/inc/upgrade_config_custom.inc")) {
 		include_once("upgrade_config_custom.inc");
 	}
+
+	if ($config['version'] == $g['latest_config']) {
+		additional_config_upgrade();
+		return;		/* already at latest version */
+	}
+
+	if (!is_array($config['system']['already_run_config_upgrade'])) {
+		$config['system']['already_run_config_upgrade'] = array();
+	}
+	$already_run = $config['system']['already_run_config_upgrade'];
+
 	/* Loop and run upgrade_VER_to_VER() until we're at current version */
 	while ($config['version'] < $g['latest_config']) {
 		$cur = $config['version'] * 10;
 		$next = $cur + 1;
-		$migration_function = sprintf('upgrade_%03d_to_%03d', $cur, $next);
-		if (function_exists($migration_function)) {
-			$migration_function();
-		}
-		$migration_function = "{$migration_function}_custom";
-		if (function_exists($migration_function)) {
-			$migration_function();
+		$migration_function = sprintf('upgrade_%03d_to_%03d', $cur,
+		    $next);
+
+		foreach (array("", "_custom") as $suffix) {
+			$migration_function .= $suffix;
+			if (!function_exists($migration_function)) {
+				continue;
+			}
+			if (isset($already_run[$migration_function])) {
+				/* Already executed, skip now */
+				unset($config['system']
+				    ['already_run_config_upgrade']
+				    [$migration_function]);
+			} else {
+				$migration_function();
+			}
 		}
 		$config['version'] = sprintf('%.1f', $next / 10);
 		if (platform_booting()) {
@@ -367,12 +384,14 @@ function convert_config() {
 		}
 	}
 
-	$now = date("H:i:s");
-	log_error(sprintf(gettext("Ended Configuration upgrade at %s"), $now));
-
 	if ($prev_version != $config['version']) {
+		$now = date("H:i:s");
+		log_error(sprintf(gettext("Ended Configuration upgrade at %s"), $now));
+
 		write_config(sprintf(gettext('Upgraded config version level from %1$s to %2$s'), $prev_version, $config['version']));
 	}
+
+	additional_config_upgrade();
 }
 
 /****f* config/safe_write_file
@@ -443,20 +462,28 @@ function write_config($desc="Unknown", $backup = true, $write_config_only = fals
 	global $config, $g;
 
 	if (!empty($_SERVER['REMOTE_ADDR'])) {
-		if (!session_id()) {
-			@session_start();
-		}
+		@phpsession_begin();
 		if (!empty($_SESSION['Username']) && ($_SESSION['Username'] != "admin")) {
 			$user = getUserEntry($_SESSION['Username']);
 			if (is_array($user) && userHasPrivilege($user, "user-config-readonly")) {
-				session_commit();
+				syslog(LOG_AUTHPRIV, sprintf(gettext("Save config permission denied by the 'User - Config: Deny Config Write' permission for user '%s'."), get_config_user()));
+				phpsession_end(true);
 				return false;
 			}
 		}
+		if (!isset($argc)) {
+			phpsession_end(true);
+		}
 	}
 
-	if (!isset($argc)) {
-		session_commit();
+	if (isset($config['reset_factory_defaults'])) {
+		/*
+		   We have put a default config.xml on disk and are about to reboot
+		   or reload it. Do not let any system or package code try to save
+		   state to config because that would overwrite the default config
+		   with the running config.
+		*/
+		return false;
 	}
 
 	if ($backup) {
@@ -517,6 +544,16 @@ function write_config($desc="Unknown", $backup = true, $write_config_only = fals
 		run_plugins("/usr/local/pkg/write_config/");
 	}
 
+	// Try the core AutoConfigBackup system
+	if (is_array($config['system']['acb']) && $config['system']['acb']['enable'] == "yes" &&
+	    (!isset($config['system']['acb']['frequency']) || $config['system']['acb']['frequency'] == "every") || file_exists("/tmp/forceacb")) {
+		require_once("acb.inc");
+		upload_config();
+		if (file_exists("/tmp/forceacb")) {
+			unlink("/tmp/forceacb");
+		}
+	}
+
 	return $config;
 }
 
@@ -527,12 +564,11 @@ function write_config($desc="Unknown", $backup = true, $write_config_only = fals
  *   integer	- indicates completion
  ******/
 function reset_factory_defaults($lock = false, $reboot_required = true) {
-	global $g;
-
+	global $config, $g;
 
 	/* Remove all additional packages */
 	mwexec("/bin/sh /usr/local/sbin/{$g['product_name']}-upgrade " .
-	    "-r ALL_PACKAGES");
+	    "-r ALL_PACKAGES -f");
 
 	if (!$lock) {
 		$lockkey = lock('config', LOCK_EX);
@@ -557,6 +593,17 @@ function reset_factory_defaults($lock = false, $reboot_required = true) {
 	    "{$g['cf_conf_path']}/config.xml");
 
 	disable_security_checks();
+
+	/*
+	   Let write_config know that we are awaiting reload of the current config
+	   to factory defaults. Either the system is about to reboot, throwing away
+	   the current in-memory config as it shuts down, or the in-memory config
+	   is about to be reloaded on-the-fly by parse_config.
+
+	   In both cases, we want to ensure that write_config does not flush the
+	   in-memory config back to disk.
+	*/
+	$config['reset_factory_defaults'] = true;
 
 	/* call the wizard */
 	if ($reboot_required) {
@@ -721,11 +768,16 @@ function cleanup_backupcache($lock = false) {
 			if (platform_booting()) {
 				echo ".";
 			}
-			$newxml = parse_xml_config($backup, array($g['xml_rootobj'], 'pfsense'));
+			try {
+				$newxml = parse_xml_config($backup, array($g['xml_rootobj'], 'pfsense'));
+			} catch (Exception $exc) {
+				log_error(sprintf(gettext("The backup cache file %s is corrupted. Parser error message: %s"), $backup, $exc->getMessage()));
+				$newxml = "-1";
+			}
+
 			if ($newxml == "-1") {
 				log_error(sprintf(gettext("The backup cache file %s is corrupted.  Unlinking."), $backup));
 				unlink($backup);
-				log_error(sprintf(gettext("The backup cache file %s is corrupted.  Unlinking."), $backup));
 				continue;
 			}
 			if ($newxml['revision']['description'] == "") {
@@ -855,7 +907,7 @@ function get_config_user() {
 	}
 
 	if (!empty($_SERVER['REMOTE_ADDR'])) {
-		$username .= '@' . $_SERVER['REMOTE_ADDR'];
+		$username .= '@' . get_user_remote_address() . get_user_remote_authsource();
 	}
 
 	return $username;
@@ -890,7 +942,8 @@ function pfSense_clear_globals() {
 
 	$error = error_get_last();
 
-	if ($error !== NULL) {
+	// Errors generated by user code (diag_commands.php) are identified by path and not added to notices
+	if ($error !== NULL && !preg_match('|^' . preg_quote($g['tmp_path_user_code']) . '/[^/]{1,16}$|', $error['file'])) {
 		if (in_array($error['type'], array(E_ERROR, E_COMPILE_ERROR, E_CORE_ERROR, E_RECOVERABLE_ERROR))) {
 			$errorstr = "PHP ERROR: Type: {$error['type']}, File: {$error['file']}, Line: {$error['line']}, Message: {$error['message']}";
 			print($errorstr);
@@ -927,6 +980,24 @@ function pfSense_clear_globals() {
 	}
 
 	unset($config);
+}
+
+/* Initialize a config array multiple levels deep only if unset
+ * Pass it an array of keys to test and create
+ * init_config_arr(array('virtualip', 'vip'));
+ */
+function init_config_arr($keys) {
+	global $config;
+	$c = &$config;
+	if (!is_array($keys)) {
+		return null;
+	}
+	foreach ($keys as $k) {
+		if (!is_array($c[$k])) {
+			$c[$k] = array();
+		}
+		$c = &$c[$k];
+	}
 }
 
 register_shutdown_function('pfSense_clear_globals');

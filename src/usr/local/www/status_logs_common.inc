@@ -3,7 +3,7 @@
  * status_logs_common.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -546,7 +546,7 @@ function filter_form_firewall() {
 
 
 function status_logs_build_if_list() {
-	$iflist = get_configured_interface_with_descr(false, true);
+	$iflist = get_configured_interface_with_descr(true);
 	//$iflist = get_interface_list();
 	// Allow extending of the firewall edit interfaces
 	pfSense_handle_custom_code("/usr/local/pkg/firewall_nat/pre_interfaces_edit");

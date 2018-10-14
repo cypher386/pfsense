@@ -3,7 +3,7 @@
  * diag_backup.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -205,6 +205,12 @@ if ($_POST) {
 				if ($_POST['backuparea'] !== "rrddata" && !$_POST['donotbackuprrd']) {
 					$rrd_data_xml = rrd_data_xml();
 					$closing_tag = "</" . $g['xml_rootobj'] . ">";
+
+					/* If the config on disk had rrddata tags already, remove that section first.
+					 * See https://redmine.pfsense.org/issues/8994 */
+					$data = preg_replace("/<rrddata>.*<\\/rrddata>/", "", $data);
+					$data = preg_replace("/<rrddata\\/>/", "", $data);
+
 					$data = str_replace($closing_tag, $rrd_data_xml . $closing_tag, $data);
 				}
 
@@ -261,6 +267,13 @@ if ($_POST) {
 						$data = str_replace("m0n0wall", "pfsense", $data);
 						$m0n0wall_upgrade = true;
 					}
+
+					/* If the config on disk had empty rrddata tags, remove them to
+					 * avoid an XML parsing error.
+					 * See https://redmine.pfsense.org/issues/8994 */
+					$data = preg_replace("/<rrddata><\\/rrddata>/", "", $data);
+					$data = preg_replace("/<rrddata\\/>/", "", $data);
+
 					if ($_POST['restorearea']) {
 						/* restore a specific area of the configuration */
 						if (!stristr($data, "<" . $_POST['restorearea'] . ">")) {
@@ -287,16 +300,46 @@ if ($_POST) {
 							/* restore the entire configuration */
 							file_put_contents($_FILES['conffile']['tmp_name'], $data);
 							if (config_install($_FILES['conffile']['tmp_name']) == 0) {
+								/* Save current pkg repo to re-add on new config */
+								unset($pkg_repo_conf_path);
+								if (isset($config['system']['pkg_repo_conf_path'])) {
+									$pkg_repo_conf_path = $config['system']['pkg_repo_conf_path'];
+								}
+
 								/* this will be picked up by /index.php */
 								mark_subsystem_dirty("restore");
-								touch("/conf/needs_package_sync_after_reboot");
+								touch("/conf/needs_package_sync");
 								/* remove cache, we will force a config reboot */
 								if (file_exists("{$g['tmp_path']}/config.cache")) {
 									unlink("{$g['tmp_path']}/config.cache");
 								}
 								$config = parse_config(true);
+
+								/* Restore previously pkg repo configured */
+								$pkg_repo_restored = false;
+								if (isset($pkg_repo_conf_path)) {
+									$config['system']['pkg_repo_conf_path'] =
+									    $pkg_repo_conf_path;
+									$pkg_repo_restored = true;
+								} elseif (isset($config['system']['pkg_repo_conf_path'])) {
+									unset($config['system']['pkg_repo_conf_path']);
+									$pkg_repo_restored = true;
+								}
+
+								if ($pkg_repo_restored) {
+									write_config(gettext("Removing pkg repository set after restoring full configuration"));
+								}
+
 								if (file_exists("/boot/loader.conf")) {
 									$loaderconf = file_get_contents("/boot/loader.conf");
+									if (strpos($loaderconf, "console=\"comconsole")) {
+										$config['system']['enableserial'] = true;
+										write_config(gettext("Restore serial console enabling in configuration."));
+									}
+									unset($loaderconf);
+								}
+								if (file_exists("/boot/loader.conf.local")) {
+									$loaderconf = file_get_contents("/boot/loader.conf.local");
 									if (strpos($loaderconf, "console=\"comconsole")) {
 										$config['system']['enableserial'] = true;
 										write_config(gettext("Restore serial console enabling in configuration."));
@@ -317,7 +360,7 @@ if ($_POST) {
 									}
 									unset($config['shaper']);
 									/* optional if list */
-									$ifdescrs = get_configured_interface_list(true, true);
+									$ifdescrs = get_configured_interface_list(true);
 									/* remove special characters from interface descriptions */
 									if (is_array($ifdescrs)) {
 										foreach ($ifdescrs as $iface) {
@@ -328,17 +371,8 @@ if ($_POST) {
 									if (is_array($ifdescrs)) {
 										foreach ($ifdescrs as $iface) {
 											if (is_alias($config['interfaces'][$iface]['descr'])) {
-												// Firewall rules
 												$origname = $config['interfaces'][$iface]['descr'];
-												$newname = $config['interfaces'][$iface]['descr'] . "Alias";
-												update_alias_names_upon_change(array('filter', 'rule'), array('source', 'address'), $newname, $origname);
-												update_alias_names_upon_change(array('filter', 'rule'), array('destination', 'address'), $newname, $origname);
-												// NAT Rules
-												update_alias_names_upon_change(array('nat', 'rule'), array('source', 'address'), $newname, $origname);
-												update_alias_names_upon_change(array('nat', 'rule'), array('destination', 'address'), $newname, $origname);
-												update_alias_names_upon_change(array('nat', 'rule'), array('target'), $newname, $origname);
-												// Alias in an alias
-												update_alias_names_upon_change(array('aliases', 'alias'), array('address'), $newname, $origname);
+												update_alias_name($origname . "Alias", $origname);
 											}
 										}
 									}

@@ -4,7 +4,7 @@
  *
  * part of pfSense (https://www.pfsense.org)
  * Copyright (c) 2013 Stanley P. Miller \ stan-qaz
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,7 +20,6 @@
  * limitations under the License.
  */
 
-$nocsrf = true;
 global $dyndns_split_domain_types;
 
 require_once("guiconfig.inc");
@@ -46,12 +45,19 @@ if (!function_exists('get_dyndns_hostname_text')) {
 	}
 }
 
+if (!is_array($config['dyndnses'])) {
+	$config['dyndnses'] = array();
+}
+
 if (!is_array($config['dyndnses']['dyndns'])) {
 	$config['dyndnses']['dyndns'] = array();
 }
 
 $a_dyndns = $config['dyndnses']['dyndns'];
 
+if (!is_array($config['dnsupdates'])) {
+	$config['dnsupdates'] = array();
+}
 if (!is_array($config['dnsupdates']['dnsupdate'])) {
 	$config['dnsupdates']['dnsupdate'] = array();
 }
@@ -61,6 +67,9 @@ $a_rfc2136 = $config['dnsupdates']['dnsupdate'];
 $all_dyndns = array_merge($a_dyndns, $a_rfc2136);
 
 array_walk($all_dyndns, function(&$dyndns) {
+	if (empty($dyndns)) {
+		return;
+	}
 	if (empty($dyndns['type'])) {
 		/* RFC2136, add some dummy values */
 		$dyndns['type'] = '_rfc2136_';
@@ -116,8 +125,10 @@ if ($_REQUEST['getdyndnsstatus']) {
 			print('N/A ' . date("H:i:s"));
 		}
 	}
+
 	exit;
 } else if ($_POST['widgetkey']) {
+	set_customwidgettitle($user_settings);
 
 	$validNames = array();
 
@@ -199,18 +210,18 @@ if (!function_exists('get_dyndns_service_text')) {
 
 	?>
 	<tr ondblclick="document.location='<?=$dblclick_location;?>?id=<?=$locationid;?>'"<?=!isset($dyndns['enable'])?' class="disabled"':''?>>
-		<td>
-		<?=get_dyndns_interface_text($dyndns['interface']);?>
-		</td>
-		<td>
-		<?=htmlspecialchars(get_dyndns_service_text($dyndns['type']));?>
-		</td>
-		<td>
-		<?=insert_word_breaks_in_domain_name(htmlspecialchars(get_dyndns_hostname_text($dyndns)));?>
-		</td>
-		<td>
-		<div id="dyndnsstatus<?= $rowid;?>"><?= gettext("Checking ...");?></div>
-		</td>
+		<td><?=get_dyndns_interface_text($dyndns['interface']);?></td>
+<?php
+		if (((get_dyndns_service_text($dyndns['type']) == 'Custom') ||
+			 (get_dyndns_service_text($dyndns['type']) == 'Custom (v6)')) &&
+			 (get_dyndns_service_text($dyndns['descr']) != '')):
+?>
+		<td><?=htmlspecialchars(get_dyndns_service_text($dyndns['descr']));?></td>
+		<?php else:?>
+		<td><?=htmlspecialchars(get_dyndns_service_text($dyndns['type']));?></td>
+		<?php endif;?>
+		<td><?=insert_word_breaks_in_domain_name(htmlspecialchars(get_dyndns_hostname_text($dyndns)));?></td>
+		<td><div id="dyndnsstatus<?= $rowid;?>"><?= gettext("Checking ...");?></div></td>
 	</tr>
 	<?php endforeach;?>
 	<?php if ($rowid == -1):?>
@@ -227,9 +238,10 @@ if (!function_exists('get_dyndns_service_text')) {
 </div><div id="<?=$widget_panel_footer_id?>" class="panel-footer collapse">
 
 <form action="/widgets/widgets/dyn_dns_status.widget.php" method="post" class="form-horizontal">
+	<?=gen_customwidgettitle_div($widgetconfig['title']); ?>
     <div class="panel panel-default col-sm-10">
 		<div class="panel-body">
-			<input type="hidden" name="widgetkey" value="<?=$widgetkey; ?>">
+			<input type="hidden" name="widgetkey" value="<?=htmlspecialchars($widgetkey); ?>">
 			<div class="table responsive">
 				<table class="table table-striped table-hover table-condensed">
 					<thead>
@@ -247,7 +259,15 @@ if (!function_exists('get_dyndns_service_text')) {
 ?>
 						<tr>
 							<td><?=get_dyndns_interface_text($dyndns['interface'])?></td>
+<?php
+							if (((get_dyndns_service_text($dyndns['type']) == 'Custom') ||
+							     (get_dyndns_service_text($dyndns['type']) == 'Custom (v6)')) &&
+								 (get_dyndns_service_text($dyndns['descr']) != '')):
+?>
+							<td><?=htmlspecialchars(get_dyndns_service_text($dyndns['descr']));?></td>
+							<?php else:?>
 							<td><?=get_dyndns_service_text($dyndns['type'])?></td>
+							<?php endif;?>
 							<td><?=get_dyndns_hostname_text($dyndns)?></td>
 							<td class="col-sm-2"><input id="show[]" name ="show[]" value="<?=get_dyndnsent_key($dyndns)?>" type="checkbox" <?=(!in_array(get_dyndnsent_key($dyndns), $skipdyndns) ? 'checked':'')?>></td>
 						</tr>
@@ -270,34 +290,41 @@ if (!function_exists('get_dyndns_service_text')) {
 
 <script type="text/javascript">
 //<![CDATA[
-	function dyndns_getstatus_<?=$widgetkey_nodash?>() {
-		scroll(0,0);
-		var url = "/widgets/widgets/dyn_dns_status.widget.php";
-		var pars = 'getdyndnsstatus=<?=$widgetkey?>';
-		$.ajax(
-			url,
-			{
-				type: 'get',
-				data: pars,
-				complete: dyndnscallback_<?=$widgetkey_nodash?>
-			});
 
-	}
-	function dyndnscallback_<?=$widgetkey_nodash?>(transport) {
-		// The server returns a string of statuses separated by vertical bars
-		var responseStrings = transport.responseText.split("|");
-		for (var count=0; count<responseStrings.length; count++) {
-			var divlabel = '#widget-<?=$widgetkey?> #dyndnsstatus' + count;
-			$(divlabel).prop('innerHTML',responseStrings[count]);
+	events.push(function(){
+		// --------------------- Centralized widget refresh system ------------------------------
+
+		// Callback function called by refresh system when data is retrieved
+		function dyndnscallback_<?=htmlspecialchars($widgetkey_nodash)?>(s) {
+			// The server returns a string of statuses separated by vertical bars
+			var responseStrings = s.split("|");
+			for (var count=0; count<responseStrings.length; count++) {
+				var divlabel = <?=json_encode('#widget-' . $widgetkey . ' #dyndnsstatus')?> + count;
+				$(divlabel).prop('innerHTML',responseStrings[count]);
+			}
 		}
 
-		// Refresh the status every 5 minutes
-		setTimeout('dyndns_getstatus_<?=$widgetkey_nodash?>()', 5*60*1000);
-	}
-	events.push(function(){
+		// POST data to send via AJAX
+		var postdata = {
+			ajax: "ajax",
+			getdyndnsstatus : <?=json_encode($widgetkey)?>
+		 };
+
+		// Create an object defining the widget refresh AJAX call
+		var dyndnsObject = new Object();
+		dyndnsObject.name = "DynDNS";
+		dyndnsObject.url = "/widgets/widgets/dyn_dns_status.widget.php";
+		dyndnsObject.callback =  dyndnscallback_<?=htmlspecialchars($widgetkey_nodash)?>;
+		dyndnsObject.parms = postdata;
+		dyndnsObject.freq = 1;
+
+		// Register the AJAX object
+		register_ajax(dyndnsObject);
+
+		// ---------------------------------------------------------------------------------------------------
+
 		set_widget_checkbox_events("#<?=$widget_panel_footer_id?> [id^=show]", "<?=$widget_showallnone_id?>");
 	});
-	// Do the first status check 2 seconds after the dashboard opens
-	setTimeout('dyndns_getstatus_<?=$widgetkey_nodash?>()', 2000);
+
 //]]>
 </script>

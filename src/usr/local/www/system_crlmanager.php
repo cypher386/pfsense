@@ -3,7 +3,7 @@
  * system_crlmanager.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,6 +29,7 @@
 require_once("guiconfig.inc");
 require_once("certs.inc");
 require_once("openvpn.inc");
+require_once("pfsense-utils.inc");
 require_once("vpn.inc");
 
 global $openssl_crl_status;
@@ -143,7 +144,7 @@ if ($act == "addcert") {
 	}
 
 	if (!$input_errors) {
-		$reason = (empty($pconfig['crlreason'])) ? OCSP_REVOKED_STATUS_UNSPECIFIED : $pconfig['crlreason'];
+		$reason = (empty($pconfig['crlreason'])) ? 0 : $pconfig['crlreason'];
 		cert_revoke($cert, $crl, $reason);
 		// refresh IPsec and OpenVPN CRLs
 		openvpn_refresh_crls();
@@ -387,7 +388,7 @@ if ($act == "new" || $act == gettext("Save") || $input_errors) {
 		'Lifetime (Days)',
 		'number',
 		$pconfig['lifetime'],
-		[max => '9999']
+		['max' => '9999']
 	));
 
 	$section->addInput(new Form_Input(
@@ -583,6 +584,10 @@ if ($act == "new" || $act == gettext("Save") || $input_errors) {
 				</thead>
 				<tbody>
 <?php
+	$pluginparams = array();
+	$pluginparams['type'] = 'certificates';
+	$pluginparams['event'] = 'used_crl';
+	$certificates_used_by_packages = pkg_call_plugins('plugin_certificates', $pluginparams);
 	// Map CRLs to CAs in one pass
 	$ca_crl_map = array();
 	foreach ($a_crl as $crl) {
@@ -628,13 +633,18 @@ if ($act == "new" || $act == gettext("Save") || $input_errors) {
 			foreach ($ca_crl_map[$ca['refid']] as $crl):
 				$tmpcrl = lookup_crl($crl);
 				$internal = is_crl_internal($tmpcrl);
+				if ($internal && (!isset($tmpcrl['cert']) || empty($tmpcrl['cert'])) ) {
+					$tmpcrl['cert'] = array();
+				}
 				$inuse = crl_in_use($tmpcrl['refid']);
 ?>
 					<tr>
 						<td><?=$tmpcrl['descr']; ?></td>
 						<td><i class="fa fa-<?=($internal) ? "check" : "times"; ?>"></i></td>
 						<td><?=($internal) ? count($tmpcrl['cert']) : "Unknown (imported)"; ?></td>
-						<td><i class="fa fa-<?=($inuse) ? "check" : "times"; ?>"></i></td>
+						<td><i class="fa fa-<?=($inuse) ? "check" : "times"; ?>"></i>
+						<?php echo cert_usedby_description($tmpcrl['refid'], $certificates_used_by_packages); ?>
+						</td>
 						<td>
 							<a href="system_crlmanager.php?act=exp&amp;id=<?=$tmpcrl['refid']?>" class="fa fa-download" title="<?=gettext("Export CRL")?>" ></a>
 <?php
@@ -696,4 +706,3 @@ events.push(function() {
 </script>
 
 <?php include("foot.inc");
-

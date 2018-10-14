@@ -3,7 +3,7 @@
  * vpn_l2tp_users.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,6 +31,7 @@ $pglinks = array("", "vpn_l2tp.php", "@self");
 $shortcut_section = "l2tps";
 
 require_once("guiconfig.inc");
+require_once("pfsense-utils.inc");
 require_once("vpn.inc");
 
 if (!is_array($config['l2tp']['user'])) {

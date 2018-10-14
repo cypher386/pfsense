@@ -2,7 +2,7 @@
  * pfSense.js
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -113,25 +113,68 @@ $(function() {
 		});
 	})();
 
+	// Add +/- buttons to certain Groups; to allow adding multiple entries
+	(function()
+	{
+		var groups = $('div.form-listitem.user-duplication');
+		var fg = $('<div class="form-group"></div>');
+		var controlsContainer = $('<div class="col-sm-10 col-sm-offset-2 controls"></div>');
+		var plus = $('<a class="btn btn-xs btn-success"><i class="fa fa-plus icon-embed-btn"></i>Add</a>');
+		var minus = $('<a class="btn btn-xs btn-warning"><i class="fa fa-trash icon-embed-btn"></i>Delete</a>');
+
+		minus.on('click', function(){
+			var groups = $('div.form-listitem.user-duplication');
+			if (groups.length > 1) {
+				$(this).parents('div.form-listitem').remove();
+			}
+		});
+
+		plus.on('click', function(){
+			var group = $(this).parents('div.form-listitem');
+			var clone = group.clone(true);
+			bump_input_id(clone);
+			clone.appendTo(group.parent());
+		});
+
+		groups.each(function(idx, group){
+			var fgClone = fg.clone(true).appendTo(group);
+			var controlsClone = controlsContainer.clone(true).appendTo(fgClone);
+			minus.clone(true).appendTo(controlsClone);
+			plus.clone(true).appendTo(controlsClone);
+		});
+	})();
+
 	// Automatically change IpAddress mask selectors to 128/32 options for IPv6/IPv4 addresses
 	$('span.pfIpMask + select').each(function (idx, select){
 		var input = $(select).prevAll('input[type=text]');
 
 		input.on('change', function(e){
 			var isV6 = (input.val().indexOf(':') != -1), min = 0, max = 128;
+
 			if (!isV6)
 				max = 32;
 
-			if (input.val() == "")
+			if (input.val() == "") {
 				return;
+			}
 
-			// Eat all of the options with a value greater than max. We don't want them to be available
-			while (select.options[0].value > max)
-				select.remove(0);
+			var attr = $(select).attr('disabled');
 
-			if (select.options.length < max) {
-				for (var i=select.options.length; i<=max; i++)
-					select.options.add(new Option(i, i), 0);
+			// Don't do anything if the mask selector is disabled
+			if (typeof attr === typeof undefined || attr === false) {
+				// Eat all of the options with a value greater than max. We don't want them to be available
+				while (select.options[0].value > max)
+					select.remove(0);
+
+				if (select.options.length < max) {
+					for (var i=select.options.length; i<=max; i++)
+						select.options.add(new Option(i, i), 0);
+
+					if (isV6) {
+						// Make sure index 0 is selected otherwise it will stay in "32" for V6
+						select.options.selectedIndex = "0";
+					}
+				}
 			}
 		});
 
@@ -178,7 +221,9 @@ $(function() {
 			all.prop('checked', (all.length != checked.length));
 		});
 
-		a.appendTo($(this));
+		if ( ! $(this).parent().hasClass("notoggleall")) {
+			a.appendTo($(this));
+		}
 	});
 
 	// The need to NOT hide the advanced options if the elements therein are not set to the system

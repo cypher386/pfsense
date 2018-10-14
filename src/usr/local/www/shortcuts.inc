@@ -3,7 +3,7 @@
  * shortcuts.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -235,6 +235,7 @@ $shortcuts['resolver'] = array();
 $shortcuts['resolver']['main'] = "services_unbound.php";
 $shortcuts['resolver']['log'] = "status_logs.php?logfile=resolver";
 $shortcuts['resolver']['service'] = "unbound";
+$shortcuts['resolver']['status'] = "status_unbound.php";
 
 $shortcuts['wireless'] = array();
 $shortcuts['wireless']['main'] = "interfaces_wireless.php";
@@ -253,7 +254,7 @@ $shortcuts['pppoes']['log'] = "status_logs_vpn.php?vpntype=poes";
 
 $shortcuts['l2tps'] = array();
 $shortcuts['l2tps']['main'] = "vpn_l2tp.php";
-$shortcuts['l2tps']['log'] = "status_logs_vpn.php?vpntype=l2tp";
+$shortcuts['l2tps']['log'] = "status_logs_vpn.php?logfile=l2tps&vpntype=l2tp";
 
 $shortcuts['carp'] = array();
 $shortcuts['carp']['main'] = "system_hasync.php";
@@ -263,6 +264,11 @@ $shortcuts['snmp'] = array();
 $shortcuts['snmp']['main'] = "services_snmp.php";
 $shortcuts['snmp']['service'] = "bsnmpd";
 
+$shortcuts['syslogd'] = array();
+$shortcuts['syslogd']['main'] = "status_logs_settings.php";
+$shortcuts['syslogd']['log'] = "status_logs.php";
+$shortcuts['syslogd']['service'] = "syslogd";
+
 $shortcuts['authentication'] = array();
 $shortcuts['authentication']['main'] = "system_authservers.php";
 // $shortcuts['authentication']['status'] = "diag_authentication.php";
@@ -270,4 +276,5 @@ $shortcuts['authentication']['main'] = "system_authservers.php";
 $shortcuts['aliases'] = array();
 $shortcuts['aliases']['main'] = "firewall_aliases.php";
 $shortcuts['aliases']['status'] = "diag_tables.php";
+
 ?>

@@ -3,7 +3,7 @@
  * status_interfaces.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -31,8 +31,9 @@
 ##|-PRIV
 
 require_once("guiconfig.inc");
-require_once("shaper.inc");
-require_once("filter.inc");
+require_once("interfaces.inc");
+require_once("pfsense-utils.inc");
+require_once("util.inc");
 
 if ($_POST['ifdescr'] && $_POST['submit']) {
 	$interface = $_POST['ifdescr'];
@@ -84,9 +85,13 @@ function dhcp_relinquish_lease($if, $ifdescr, $ipv) {
 	$leases_db = '/var/db/dhclient.leases.' . $if;
 	$conf_file = '/var/etc/dhclient_'.$ifdescr.'.conf';
 	$script_file = '/usr/local/sbin/pfSense-dhclient-script';
+	$ipv = ((int) $ipv == 6) ? '-6' : '-4';
 
 	if (file_exists($leases_db) && file_exists($script_file)) {
-		mwexec('/usr/local/sbin/dhclient -'.$ipv.' -d -r -lf '.$leases_db.' -cf '.$conf_file.' -sf '.$script_file);
+		mwexec('/usr/local/sbin/dhclient {$ipv} -d -r' .
+			' -lf ' . escapeshellarg($leases_db) .
+			' -cf ' . escapeshellarg($conf_file) .
+			' -sf ' . escapeshellarg($script_file));
 	}
 }
 
@@ -94,7 +99,7 @@ $pgtitle = array(gettext("Status"), gettext("Interfaces"));
 $shortcut_section = "interfaces";
 include("head.inc");
 
-$ifdescrs = get_configured_interface_with_descr(false, true);
+$ifdescrs = get_configured_interface_with_descr(true);
 
 foreach ($ifdescrs as $ifdescr => $ifname):
 	$ifinfo = get_interface_info($ifdescr);
@@ -112,7 +117,7 @@ foreach ($ifdescrs as $ifdescr => $ifname):
 	<div class="panel-body">
 		<dl class="dl-horizontal">
 <?php
-		showDef(true, gettext("Status"), $ifinfo['status']);
+		showDef(true, gettext("Status"), $ifinfo['enable'] ? $ifinfo['status'] : gettext('disabled'));
 		showDefBtn($ifinfo['dhcplink'], 'DHCP', $ifinfo['dhcplink'], $ifdescr, $ifinfo['dhcplink'] == "up" ? gettext("Release") : gettext("Renew"), $ifinfo['dhcplink'] == "up" ? $chkbox_relinquish_lease_v4 : '');
 		showDefBtn($ifinfo['dhcp6link'], 'DHCP6', $ifinfo['dhcp6link'], $ifdescr, $ifinfo['dhcp6link'] == "up" ? gettext("Release") : gettext("Renew"), $ifinfo['dhcp6link'] == "up" ? $chkbox_relinquish_lease_v6 : '');
 		showDefBtn($ifinfo['pppoelink'], 'PPPoE', $ifinfo['pppoelink'], $ifdescr, $ifinfo['pppoelink'] == "up" ? gettext("Disconnect") : gettext("Connect"), '');

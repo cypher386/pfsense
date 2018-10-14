@@ -3,7 +3,7 @@
  * interfaces_lagg.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,6 +28,10 @@
 
 require_once("guiconfig.inc");
 
+if (!is_array($config['laggs'])) {
+	$config['laggs'] = array();
+}
+
 if (!is_array($config['laggs']['lagg'])) {
 	$config['laggs']['lagg'] = array();
 }
@@ -37,7 +41,7 @@ $a_laggs = &$config['laggs']['lagg'] ;
 function lagg_inuse($num) {
 	global $config, $a_laggs;
 
-	$iflist = get_configured_interface_list(false, true);
+	$iflist = get_configured_interface_list(true);
 	foreach ($iflist as $if) {
 		if ($config['interfaces'][$if]['if'] == $a_laggs[$num]['laggif']) {
 			return true;

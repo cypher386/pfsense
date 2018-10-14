@@ -3,7 +3,7 @@
  * interface_statistics.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,4 +22,5 @@
 //set variable for custom title
 $interface_statistics_title = gettext("Interface Statistics");
 $interface_statistics_title_link = "status_interfaces.php";
+$interface_statistics_allow_multiple_widget_copies = true;
 ?>

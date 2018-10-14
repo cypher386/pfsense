@@ -3,7 +3,7 @@
  * system.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -47,6 +47,11 @@ if (!isset($config['system']['webgui']['dashboardcolumns'])) {
 	$config['system']['webgui']['dashboardcolumns'] = 2;
 }
 
+// set default language if unset
+if (!isset($config['system']['language'])) {
+	$config['system']['language'] = $g['language'];
+}
+
 $dnsgw_counter = 1;
 
 while (isset($config["system"]["dns{$dnsgw_counter}gw"])) {
@@ -60,8 +65,10 @@ $pconfig['timezone'] = $config['system']['timezone'];
 $pconfig['timeservers'] = $config['system']['timeservers'];
 $pconfig['language'] = $config['system']['language'];
 $pconfig['webguicss'] = $config['system']['webgui']['webguicss'];
+$pconfig['logincss'] = $config['system']['webgui']['logincss'];
 $pconfig['webguifixedmenu'] = $config['system']['webgui']['webguifixedmenu'];
 $pconfig['dashboardcolumns'] = $config['system']['webgui']['dashboardcolumns'];
+$pconfig['interfacessort'] = isset($config['system']['webgui']['interfacessort']);
 $pconfig['webguileftcolumnhyper'] = isset($config['system']['webgui']['webguileftcolumnhyper']);
 $pconfig['disablealiaspopupdetail'] = isset($config['system']['webgui']['disablealiaspopupdetail']);
 $pconfig['dashboardavailablewidgetspanel'] = isset($config['system']['webgui']['dashboardavailablewidgetspanel']);
@@ -70,7 +77,8 @@ $pconfig['systemlogsmanagelogpanel'] = isset($config['system']['webgui']['system
 $pconfig['statusmonitoringsettingspanel'] = isset($config['system']['webgui']['statusmonitoringsettingspanel']);
 $pconfig['webguihostnamemenu'] = $config['system']['webgui']['webguihostnamemenu'];
 $pconfig['dnslocalhost'] = isset($config['system']['dnslocalhost']);
-$pconfig['dashboardperiod'] = isset($config['widgets']['period']) ? $config['widgets']['period']:"10";
+//$pconfig['dashboardperiod'] = isset($config['widgets']['period']) ? $config['widgets']['period']:"10";
+$pconfig['roworderdragging'] = isset($config['system']['webgui']['roworderdragging']);
 $pconfig['loginshowhost'] = isset($config['system']['webgui']['loginshowhost']);
 $pconfig['requirestatefilter'] = isset($config['system']['webgui']['requirestatefilter']);
 
@@ -128,7 +136,7 @@ foreach ($timezonedesc as $idx => $desc) {
 
 	$hr_offset = substr($desc, 8);
 	$timezonedesc[$idx] = $desc . " " .
-	    sprintf(ngettext('(%1$s hour %2$s GMT)', '(%1$s hours %2$s GMT)', $hr_offset), $hr_offset, $direction_str);
+	    sprintf(ngettext('(%1$s hour %2$s GMT)', '(%1$s hours %2$s GMT)', intval($hr_offset)), $hr_offset, $direction_str);
 }
 
 $multiwan = false;
@@ -152,38 +160,6 @@ if ($_POST) {
 
 	do_input_validation($_POST, $reqdfields, $reqdfieldsn, $input_errors);
 
-	if ($_POST['dashboardperiod']) {
-		$config['widgets']['period'] = $_POST['dashboardperiod'];
-	}
-
-	if ($_POST['webguicss']) {
-		$config['system']['webgui']['webguicss'] = $_POST['webguicss'];
-	} else {
-		unset($config['system']['webgui']['webguicss']);
-	}
-
-	$config['system']['webgui']['loginshowhost'] = $_POST['loginshowhost'] ? true:false;
-
-	if ($_POST['webguifixedmenu']) {
-		$config['system']['webgui']['webguifixedmenu'] = $_POST['webguifixedmenu'];
-	} else {
-		unset($config['system']['webgui']['webguifixedmenu']);
-	}
-
-	if ($_POST['webguihostnamemenu']) {
-		$config['system']['webgui']['webguihostnamemenu'] = $_POST['webguihostnamemenu'];
-	} else {
-		unset($config['system']['webgui']['webguihostnamemenu']);
-	}
-
-	if ($_POST['dashboardcolumns']) {
-		$config['system']['webgui']['dashboardcolumns'] = $_POST['dashboardcolumns'];
-	} else {
-		unset($config['system']['webgui']['dashboardcolumns']);
-	}
-
-	$config['system']['webgui']['requirestatefilter'] = $_POST['requirestatefilter'] ? true : false;
-
 	if ($_POST['hostname']) {
 		if (!is_hostname($_POST['hostname'])) {
 			$input_errors[] = gettext("The hostname can only contain the characters A-Z, 0-9 and '-'. It may not start or end with '-'.");
@@ -196,6 +172,10 @@ if ($_POST) {
 	if ($_POST['domain'] && !is_domain($_POST['domain'])) {
 		$input_errors[] = gettext("The domain may only contain the characters a-z, 0-9, '-' and '.'.");
 	}
+	validate_webguicss_field($input_errors, $_POST['webguicss']);
+	validate_webguifixedmenu_field($input_errors, $_POST['webguifixedmenu']);
+	validate_webguihostnamemenu_field($input_errors, $_POST['webguihostnamemenu']);
+	validate_dashboardcolumns_field($input_errors, $_POST['dashboardcolumns']);
 
 	$dnslist = $ignore_posted_dnsgw = array();
 
@@ -272,6 +252,9 @@ if ($_POST) {
 			set_language();
 		}
 
+		unset($config['system']['webgui']['interfacessort']);
+		$config['system']['webgui']['interfacessort'] = $_POST['interfacessort'] ? true : false;
+
 		unset($config['system']['webgui']['webguileftcolumnhyper']);
 		$config['system']['webgui']['webguileftcolumnhyper'] = $_POST['webguileftcolumnhyper'] ? true : false;
 
@@ -289,6 +272,46 @@ if ($_POST) {
 
 		unset($config['system']['webgui']['statusmonitoringsettingspanel']);
 		$config['system']['webgui']['statusmonitoringsettingspanel'] = $_POST['statusmonitoringsettingspanel'] ? true : false;
+
+//		if ($_POST['dashboardperiod']) {
+//			$config['widgets']['period'] = $_POST['dashboardperiod'];
+//		}
+
+		if ($_POST['webguicss']) {
+			$config['system']['webgui']['webguicss'] = $_POST['webguicss'];
+		} else {
+			unset($config['system']['webgui']['webguicss']);
+		}
+
+		$config['system']['webgui']['roworderdragging'] = $_POST['roworderdragging'] ? true:false;
+
+		if ($_POST['logincss']) {
+			$config['system']['webgui']['logincss'] = $_POST['logincss'];
+		} else {
+			unset($config['system']['webgui']['logincss']);
+		}
+
+		$config['system']['webgui']['loginshowhost'] = $_POST['loginshowhost'] ? true:false;
+
+		if ($_POST['webguifixedmenu']) {
+			$config['system']['webgui']['webguifixedmenu'] = $_POST['webguifixedmenu'];
+		} else {
+			unset($config['system']['webgui']['webguifixedmenu']);
+		}
+
+		if ($_POST['webguihostnamemenu']) {
+			$config['system']['webgui']['webguihostnamemenu'] = $_POST['webguihostnamemenu'];
+		} else {
+			unset($config['system']['webgui']['webguihostnamemenu']);
+		}
+
+		if ($_POST['dashboardcolumns']) {
+			$config['system']['webgui']['dashboardcolumns'] = $_POST['dashboardcolumns'];
+		} else {
+			unset($config['system']['webgui']['dashboardcolumns']);
+		}
+
+		$config['system']['webgui']['requirestatefilter'] = $_POST['requirestatefilter'] ? true : false;
 
 		/* XXX - billm: these still need updating after figuring out how to check if they actually changed */
 		$olddnsservers = $config['system']['dnsserver'];
@@ -443,9 +466,12 @@ $section->addInput(new Form_Input(
 	'text',
 	$pconfig['domain'],
 	['placeholder' => 'mycorp.com, home, office, private, etc.']
-))->setHelp('Do not use \'local\' as a domain name. It will cause local '.
-	'hosts running mDNS (avahi, bonjour, etc.) to be unable to resolve '.
-	'local hosts not running mDNS.');
+))->setHelp('Do not use \'.local\' as the final part of the domain (TLD), The \'.local\' domain is %1$swidely used%2$s by '.
+	'mDNS (including Avahi and Apple OS X\'s Bonjour/Rendezvous/Airprint/Airplay), and some Windows systems and networked devices. ' .
+	'These will not network correctly if the router uses \'.local\'. Alternatives such as \'.local.lan\' or \'.mylocal\' are safe.',
+	 '<a target="_blank" href="https://www.unbound.net/pipermail/unbound-users/2011-March/001735.html">',
+	 '</a>'
+);
 
 $form->add($section);
 
@@ -576,6 +602,7 @@ gen_webguicss_field($section, $pconfig['webguicss']);
 gen_webguifixedmenu_field($section, $pconfig['webguifixedmenu']);
 gen_webguihostnamemenu_field($section, $pconfig['webguihostnamemenu']);
 gen_dashboardcolumns_field($section, $pconfig['dashboardcolumns']);
+gen_interfacessort_field($section, $pconfig['interfacessort']);
 gen_associatedpanels_fields(
 	$section,
 	$pconfig['dashboardavailablewidgetspanel'],
@@ -587,12 +614,28 @@ gen_webguileftcolumnhyper_field($section, $pconfig['webguileftcolumnhyper']);
 gen_disablealiaspopupdetail_field($section, $pconfig['disablealiaspopupdetail']);
 
 $section->addInput(new Form_Checkbox(
+	'roworderdragging',
+	'Disable dragging',
+	'Disable dragging of firewall/nat rules.',
+	$pconfig['roworderdragging']
+))->setHelp('Disables dragging rows to allow selecting and copying row contents and avoid accidental changes.');
+
+$section->addInput(new Form_Select(
+	'logincss',
+	'Login page color',
+	$pconfig['logincss'],
+	["1e3f75;" => gettext("Blue"), "003300" => gettext("Green"), "770101" => gettext("Red"),
+	 "4b1263" => gettext("Purple"), "424142" => gettext("Gray"), "333333" => gettext("Dark gray"),
+	 "633215" => gettext("Brown" ), "bf7703" => gettext("Orange")]
+))->setHelp('Choose a color for the login page');
+
+$section->addInput(new Form_Checkbox(
 	'loginshowhost',
 	'Login hostname',
 	'Show hostname on login banner',
 	$pconfig['loginshowhost']
 ));
-
+/*
 $section->addInput(new Form_Input(
 	'dashboardperiod',
 	'Dashboard update period',
@@ -602,7 +645,7 @@ $section->addInput(new Form_Input(
 ))->setHelp('Time in seconds between dashboard widget updates. Small values cause ' .
 			'more frequent updates but increase the load on the web server. ' .
 			'Minimum is 5 seconds, maximum 600 seconds');
-
+*/
 $form->add($section);
 
 print $form;

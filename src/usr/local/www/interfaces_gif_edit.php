@@ -3,7 +3,7 @@
  * interfaces_gif_edit.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,6 +28,9 @@
 
 require_once("guiconfig.inc");
 
+if (!is_array($config['gifs'])) {
+	$config['gifs'] = array();
+}
 if (!is_array($config['gifs']['gif'])) {
 	$config['gifs']['gif'] = array();
 }
@@ -61,10 +64,10 @@ if ($_POST['save']) {
 
 	do_input_validation($_POST, $reqdfields, $reqdfieldsn, $input_errors);
 
-	if ((!is_ipaddr($_POST['tunnel-local-addr'])) ||
-	    (!is_ipaddr($_POST['tunnel-remote-addr'])) ||
-	    (!is_ipaddr($_POST['remote-addr']))) {
-		$input_errors[] = gettext("The tunnel local and tunnel remote fields must have valid IP addresses.");
+	if ((!is_ipaddr($_POST['tunnel-local-addr']) || is_subnet($_POST['tunnel-local-addr'])) ||
+	    (!is_ipaddr($_POST['tunnel-remote-addr']) || is_subnet($_POST['tunnel-remote-addr'])) ||
+	    (!is_ipaddr($_POST['remote-addr']) || is_subnet($_POST['remote-addr']))) {
+		$input_errors[] = gettext("The tunnel local and tunnel remote fields must have valid IP addresses and must not contain CIDR masks or prefixes.");
 	}
 
 	if (!is_numericint($_POST['tunnel-remote-net'])) {

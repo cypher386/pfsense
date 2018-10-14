@@ -3,7 +3,7 @@
  * interfaces_wireless.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2010 Erik Fonnesbeck
  * All rights reserved.
  *
@@ -41,7 +41,7 @@ $a_clones = &$config['wireless']['clone'];
 function clone_inuse($num) {
 	global $config, $a_clones;
 
-	$iflist = get_configured_interface_list(false, true);
+	$iflist = get_configured_interface_list(true);
 
 	foreach ($iflist as $if) {
 		if ($config['interfaces'][$if]['if'] == $a_clones[$num]['cloneif']) {

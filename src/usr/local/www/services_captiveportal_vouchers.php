@@ -3,7 +3,7 @@
  * services_captiveportal_vouchers.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2007 Marcel Wiget <mwiget@mac.com>
  * All rights reserved.
  *
@@ -277,6 +277,8 @@ if ($_POST['save']) {
 			$config['voucher'][$cpzone] = $newvoucher;
 			write_config();
 			voucher_configure_zone();
+			// Refresh captivportal login to show voucher changes
+			captiveportal_configure_zone($config['captiveportal'][$cpzone]);
 		} else {
 			$newvoucher['vouchersyncdbip'] = $_POST['vouchersyncdbip'];
 			$newvoucher['vouchersyncport'] = $_POST['vouchersyncport'];
@@ -347,6 +349,8 @@ EOF;
 						$config['voucher'][$cpzone] = $newvoucher;
 						write_config();
 						voucher_configure_zone(true);
+						// Refresh captivportal login to show voucher changes
+						captiveportal_configure_zone($config['captiveportal'][$cpzone]);
 					}
 				}
 			}

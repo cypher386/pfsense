@@ -3,7 +3,7 @@
  * smart_status.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,4 +22,5 @@
 //set variable for custom title
 $smart_status_title = gettext("S.M.A.R.T. Status");
 $smart_status_title_link = "diag_smart.php";
+$smart_status_allow_multiple_widget_copies = true;
 ?>

@@ -3,7 +3,7 @@
  * firewall_nat_1to1.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -136,15 +136,16 @@ $tab_array[] = array(gettext("1:1"), true, "firewall_nat_1to1.php");
 $tab_array[] = array(gettext("Outbound"), false, "firewall_nat_out.php");
 $tab_array[] = array(gettext("NPt"), false, "firewall_nat_npt.php");
 display_top_tabs($tab_array);
+
 ?>
 <form action="firewall_nat_1to1.php" method="post">
 	<div class="panel panel-default">
 		<div class="panel-heading"><h2 class="panel-title"><?=gettext("NAT 1:1 Mappings")?></h2></div>
 		<div id="mainarea" class="table-responsive panel-body">
-			<table class="table table-striped table-hover table-condensed">
+			<table id="ruletable" class="table table-striped table-hover table-condensed">
 				<thead>
 					<tr>
-						<th><!-- checkbox --></th>
+						<th><input type="checkbox" id="selectAll" name="selectAll" /></th>
 						<th><!-- icon --></th>
 						<th><?=gettext("Interface"); ?></th>
 						<th><?=gettext("External IP"); ?></th>
@@ -156,18 +157,22 @@ display_top_tabs($tab_array);
 				</thead>
 				<tbody class="user-entries">
 <?php
-		$textse = "</span>";
 		$i = 0;
 		foreach ($a_1to1 as $natent):
 			if (isset($natent['disabled'])) {
-				$textss = "<span class=\"gray\">";
 				$iconfn = "pass_d";
 			} else {
-				$textss = "<span>";
 				$iconfn = "pass";
 			}
+
+			$alias = rule_columns_with_alias(
+			$natent['source']['address'],
+			pprint_port($natent['source']['port']),
+			$natent['destination']['address'],
+			pprint_port($natrent['destination']['port'])
+);
 ?>
-					<tr id="fr<?=$i;?>" onClick="fr_toggle(<?=$i;?>)" ondblclick="document.location='firewall_nat_1to1_edit.php?id=<?=$i;?>';">
+					<tr id="fr<?=$i;?>" onClick="fr_toggle(<?=$i;?>)" ondblclick="document.location='firewall_nat_1to1_edit.php?id=<?=$i;?>';" <?=(isset($natent['disabled']) ? ' class="disabled"' : '')?>>
 						<td >
 							<input type="checkbox" id="frc<?=$i;?>" onClick="fr_toggle(<?=$i;?>)" name="rule[]" value="<?=$i;?>"/>
 						</td>
@@ -182,35 +187,37 @@ display_top_tabs($tab_array);
 						</td>
 						<td>
 <?php
-					echo $textss;
 					if (!$natent['interface']) {
 						echo htmlspecialchars(convert_friendly_interface_to_friendly_descr("wan"));
 					} else {
 						echo htmlspecialchars(convert_friendly_interface_to_friendly_descr($natent['interface']));
 					}
-					echo $textse;
 ?>
 						</td>
 						<td>
 <?php
 					$source_net = pprint_address($natent['source']);
 					$source_cidr = strstr($source_net, '/');
-					echo $textss . $natent['external'] . $source_cidr . $textse;
+					echo $natent['external'] . $source_cidr;
 ?>
 						</td>
 						<td>
 <?php
-					echo $textss . $source_net . $textse;
+					echo $source_net;
 ?>
 						</td>
 						<td>
-<?php
-					echo $textss . pprint_address($natent['destination']) . $textse;
-?>
+							<?php if (isset($alias['dst'])): ?>
+								<a href="/firewall_aliases_edit.php?id=<?=$alias['dst']?>" data-toggle="popover" data-trigger="hover focus" title="<?=gettext('Alias details')?>" data-content="<?=alias_info_popup($alias['dst'])?>" data-html="true">
+									<?=str_replace('_', '_<wbr>', htmlspecialchars(pprint_address($natent['destination'])))?>
+								</a>
+							<?php else: ?>
+								<?=htmlspecialchars(pprint_address($natent['destination']))?>
+							<?php endif; ?>
 						</td>
 						<td>
 <?php
-					echo $textss . htmlspecialchars($natent['descr']) . '&nbsp;' . $textse;
+					echo htmlspecialchars($natent['descr']) . '&nbsp;';
 ?>
 						</td>
 
@@ -264,6 +271,7 @@ display_top_tabs($tab_array);
 //<![CDATA[
 events.push(function() {
 
+<?php if(!isset($config['system']['webgui']['roworderdragging'])): ?>
 	// Make rules sortable
 	$('table tbody.user-entries').sortable({
 		cursor: 'grabbing',
@@ -272,6 +280,7 @@ events.push(function() {
 			dirty = true;
 		}
 	});
+<?php endif; ?>
 
 	// Check all of the rule checkboxes so that their values are posted
 	$('#order-store').click(function () {
@@ -292,6 +301,13 @@ events.push(function() {
 		} else {
 			return undefined;
 		}
+	});
+
+	$('#selectAll').click(function() {
+		var checkedStatus = this.checked;
+		$('#ruletable tbody tr').find('td:first :checkbox').each(function() {
+		$(this).prop('checked', checkedStatus);
+		});
 	});
 });
 //]]>

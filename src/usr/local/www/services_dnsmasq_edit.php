@@ -3,7 +3,7 @@
  * services_dnsmasq_edit.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2003-2004 Bob Zoller <bob@kludgebox.com>
  * All rights reserved.
  *
@@ -37,6 +37,7 @@ if (!is_array($config['dnsmasq']['hosts'])) {
 	$config['dnsmasq']['hosts'] = array();
 }
 
+init_config_arr(array('dnsmasq', 'hosts'));
 $a_hosts = &$config['dnsmasq']['hosts'];
 
 if (is_numericint($_REQUEST['id'])) {
@@ -240,6 +241,10 @@ $form->add($section);
 
 $section = new Form_Section('Additional Names for this Host');
 
+if (!is_array($pconfig['aliases'])) {
+	$pconfig['aliases'] = array();
+}
+
 if (!$pconfig['aliases']['item']) {
 	$pconfig['aliases']['item'] = array('host' => "");
 }
@@ -278,7 +283,7 @@ if ($pconfig['aliases']['item']) {
 			'Delete',
 			null,
 			'fa-trash'
-		))->addClass('btn-warning');
+		))->addClass('btn-warning')->addClass('nowarn');
 
 		$section->add($group);
 		$counter++;

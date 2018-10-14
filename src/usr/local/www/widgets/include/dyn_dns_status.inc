@@ -3,7 +3,7 @@
  * dyn_dns_status.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,5 +23,6 @@
 //set variable for custom title
 $dyn_dns_status_title = gettext("Dynamic DNS Status");
 $dyn_dns_status_title_link = "services_dyndns.php";
+$dyn_dns_status_allow_multiple_widget_copies = true;
 
 ?>

@@ -4,7 +4,7 @@
  *
  * part of pfSense (https://www.pfsense.org)
  * Copyright (c) 2007 Sam Wenham
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally part of m0n0wall (http://m0n0.ch/wall)
@@ -23,8 +23,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-$nocsrf = true;
 
 require_once("globals.inc");
 require_once("guiconfig.inc");
@@ -63,15 +61,11 @@ if (!function_exists('clientcmp')) {
 
 $cpdb_all = array();
 
-$showact = isset($_GET['showact']) ? 1 : 0;
-
 foreach ($a_cp as $cpzone => $cp) {
 	$cpdb = captiveportal_read_db();
 	foreach ($cpdb as $cpent) {
 		$cpent[10] = $cpzone;
-		if ($showact == 1) {
-			$cpent[11] = captiveportal_get_last_activity($cpent[2], $cpentry[3]);
-		}
+		$cpent[11] = captiveportal_get_last_activity($cpent[2]);
 		$cpdb_all[] = $cpent;
 	}
 }
@@ -86,6 +80,7 @@ foreach ($a_cp as $cpzone => $cp) {
 			<th><?=gettext("Username");?></th>
 			<th><?=gettext("Session start");?></th>
 			<th><?=gettext("Last activity");?></th>
+			<th>&nbsp;</th>
 		</tr>
 		</thead>
 		<tbody>
@@ -95,7 +90,15 @@ foreach ($a_cp as $cpzone => $cp) {
 			<td><?=$cpent[3];?></td>
 			<td><?=$cpent[4];?></td>
 			<td><?=date("m/d/Y H:i:s", $cpent[0]);?></td>
-			<td><?php if ($cpent[11] && ($cpent[11] > 0)) echo date("m/d/Y H:i:s", $cpent[11]);?></td>
+			<td>
+<?php
+			if ($cpent[11] && ($cpent[11] > 0)):
+				echo date("m/d/Y H:i:s", $cpent[11]);
+			else:
+				echo "&nbsp;";
+			endif;
+?>
+			</td>
 			<td>
 				<a href="?order=<?=htmlspecialchars($_GET['order']);?>&amp;showact=<?=$showact;?>&amp;act=del&amp;zone=<?=$cpent[10];?>&amp;id=<?=$cpent[5];?>">
 					<i class="fa fa-trash" title="<?=gettext("delete");?>"></i>

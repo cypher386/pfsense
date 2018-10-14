@@ -3,7 +3,7 @@
  * interfaces_bridge_edit.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,6 +28,10 @@
 
 require_once("guiconfig.inc");
 
+if (!is_array($config['bridges'])) {
+	$config['bridges'] = array();
+}
+
 if (!is_array($config['bridges']['bridged'])) {
 	$config['bridges']['bridged'] = array();
 }
@@ -35,6 +39,7 @@ if (!is_array($config['bridges']['bridged'])) {
 function is_aoadv_used($pconfig) {
 	if (($pconfig['static'] !="") ||
 	    ($pconfig['private'] != "") ||
+	    $pconfig['ip6linklocal'] ||
 	    ($pconfig['stp'] != "") ||
 	    ($pconfig['span'] != "") ||
 	    ($pconfig['edge'] != "") ||
@@ -69,6 +74,7 @@ $id = $_REQUEST['id'];
 
 if (isset($id) && $a_bridges[$id]) {
 	$pconfig['enablestp'] = isset($a_bridges[$id]['enablestp']);
+	$pconfig['ip6linklocal'] = isset($a_bridges[$id]['ip6linklocal']);
 	$pconfig['descr'] = $a_bridges[$id]['descr'];
 	$pconfig['bridgeif'] = $a_bridges[$id]['bridgeif'];
 	$pconfig['members'] = $a_bridges[$id]['members'];
@@ -289,6 +295,10 @@ if ($_POST['save']) {
 		$ifpriority = "";
 		$ifpathcost = "";
 
+		if ($_POST['ip6linklocal']) {
+			$bridge['ip6linklocal'] = true;
+		}
+
 		foreach ($ifacelist as $ifn => $ifdescr) {
 			if ($_POST[$ifn] <> "") {
 				if ($i > 0) {
@@ -334,10 +344,12 @@ if ($_POST['save']) {
 		}
 
 		$bridge['bridgeif'] = $_POST['bridgeif'];
+
 		interface_bridge_configure($bridge);
 		if ($bridge['bridgeif'] == "" || !stristr($bridge['bridgeif'], "bridge")) {
 			$input_errors[] = gettext("Error occurred creating interface, please retry.");
 		} else {
+
 			if (isset($id) && $a_bridges[$id]) {
 				$a_bridges[$id] = $bridge;
 			} else {
@@ -515,6 +527,13 @@ $section->addInput(new Form_Select(
 	$edgelist['list'],
 	true
 ))->setHelp('Mark an interface as a "private" interface. A private interface does not forward any traffic to any other port that is also a private interface. ');
+
+$section->addInput(new Form_Checkbox(
+	'ip6linklocal',
+	'Enable IPv6 auto linklocal',
+	null,
+	$pconfig['ip6linklocal']
+))->setHelp('When enabled, the AUTO_LINKLOCAL flag is set on the bridge interface and cleared on every member interface. This is required when the bridge interface is used for stateless autoconfiguration. ');
 
 //	STP section
 // ToDo: - Should disable spanning tree section when not checked

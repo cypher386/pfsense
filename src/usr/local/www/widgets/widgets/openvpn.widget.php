@@ -3,7 +3,7 @@
  * openvpn.widget.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,8 +18,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-$nocsrf = true;
 
 require_once("guiconfig.inc");
 require_once("openvpn.inc");
@@ -264,7 +262,7 @@ if (!function_exists('printPanel')) {
 		} else {
 			$none_to_display_text = "";
 		}
-		
+
 		if (strlen($none_to_display_text) > 0) {
 			print('<table class="table"><tbody><td class="text-center">' . $none_to_display_text . '</td></tbody></table>');
 		}
@@ -291,6 +289,7 @@ if ($_REQUEST && $_REQUEST['ajax']) {
 	printPanel($_REQUEST['widgetkey']);
 	exit;
 } else if ($_POST['widgetkey']) {
+	set_customwidgettitle($user_settings);
 
 	$validNames = array();
 	$servers = openvpn_get_active_servers();
@@ -324,7 +323,7 @@ $widgetkey_nodash = str_replace("-", "", $widgetkey);
 
 ?>
 
-<div id="<?=$widgetkey?>-openvpn-mainpanel" class="content">
+<div id="<?=htmlspecialchars($widgetkey)?>-openvpn-mainpanel" class="content">
 
 <?php
 	printPanel($widgetkey);
@@ -334,9 +333,10 @@ $widgetkey_nodash = str_replace("-", "", $widgetkey);
 </div><div id="<?=$widget_panel_footer_id?>" class="panel-footer collapse">
 
 <form action="/widgets/widgets/openvpn.widget.php" method="post" class="form-horizontal">
+	<?=gen_customwidgettitle_div($widgetconfig['title']); ?>
     <div class="panel panel-default col-sm-10">
 		<div class="panel-body">
-			<input type="hidden" name="widgetkey" value="<?=$widgetkey; ?>">
+			<input type="hidden" name="widgetkey" value="<?=htmlspecialchars($widgetkey); ?>">
 			<div class="table responsive">
 				<table class="table table-striped table-hover table-condensed">
 					<thead>
@@ -404,7 +404,7 @@ $widgetkey_nodash = str_replace("-", "", $widgetkey);
 	function killComplete(req) {
 		var values = req.responseText.split("|");
 		if (values[3] != "0") {
-			alert('<?=gettext("An error occurred.");?>' + ' (' + values[3] + ')');
+	//		alert('<?=gettext("An error occurred.");?>' + ' (' + values[3] + ')');
 			return;
 		}
 
@@ -413,31 +413,34 @@ $widgetkey_nodash = str_replace("-", "", $widgetkey);
 		);
 	}
 
-	// Refresh the panel
-	function get_openvpn_update_<?=$widgetkey_nodash?>() {
-		var ajaxRequest;
-
-		ajaxRequest = $.ajax({
-				url: "/widgets/widgets/openvpn.widget.php",
-				type: "post",
-				data: { ajax: "ajax", widgetkey: "<?=$widgetkey?>"}
-			});
-
-		// Deal with the results of the above ajax call
-		ajaxRequest.done(function (response, textStatus, jqXHR) {
-			$('#<?=$widgetkey?>-openvpn-mainpanel').html(response);
-
-			// and do it again
-			setTimeout(get_openvpn_update_<?=$widgetkey_nodash?>, "<?=$widgetperiod?>");
-		});
-	}
-
 	events.push(function(){
 		set_widget_checkbox_events("#<?=$widget_panel_footer_id?> [id^=show]", "<?=$widget_showallnone_id?>");
 
-		// Start polling for updates some small random number of seconds from now (so that all the widgets don't
-		// hit the server at exactly the same time)
-		setTimeout(get_openvpn_update_<?=$widgetkey_nodash?>, Math.floor((Math.random() * 10000) + 1000));
+		// --------------------- Centralized widget refresh system ------------------------------
+
+		// Callback function called by refresh system when data is retrieved
+		function openvpn_callback(s) {
+			$(<?=json_encode('#' . $widgetkey . '-openvpn-mainpanel')?>).html(s);
+		}
+
+		// POST data to send via AJAX
+		var postdata = {
+			ajax: "ajax",
+			widgetkey: <?=json_encode($widgetkey)?>
+		 };
+
+		// Create an object defining the widget refresh AJAX call
+		var openvpnObject = new Object();
+		openvpnObject.name = "OpenVPN";
+		openvpnObject.url = "/widgets/widgets/openvpn.widget.php";
+		openvpnObject.callback = openvpn_callback;
+		openvpnObject.parms = postdata;
+		openvpnObject.freq = 4;
+
+		// Register the AJAX object
+		register_ajax(openvpnObject);
+
+		// ---------------------------------------------------------------------------------------------------
 	});
 //]]>
 </script>

@@ -3,7 +3,7 @@
  * system_information.widget.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2007 Scott Dale
  * All rights reserved.
  *
@@ -32,6 +32,7 @@ include_once("includes/functions.inc.php");
 
 $sysinfo_items = array(
 	'name' => gettext('Name'),
+	'user' => gettext('User'),
 	'system' => gettext('System'),
 	'bios' => gettext('BIOS'),
 	'version' => gettext('Version'),
@@ -51,14 +52,21 @@ $sysinfo_items = array(
 	'disk_usage' => gettext('Disk Usage')
 	);
 
+// Declared here so that JavaScript can access it
+$updtext = sprintf(gettext("Obtaining update status %s"), "<i class='fa fa-cog fa-spin'></i>");
+
 if ($_REQUEST['getupdatestatus']) {
 	require_once("pkg-utils.inc");
+
+	$cache_file = $g['version_cache_file'];
 
 	if (isset($config['system']['firmware']['disablecheck'])) {
 		exit;
 	}
 
-	$system_version = get_system_pkg_version();
+	/* If $_REQUEST['getupdatestatus'] == 2, force update */
+	$system_version = get_system_pkg_version(false,
+	    ($_REQUEST['getupdatestatus'] == 1));
 
 	if ($system_version === false) {
 		print(gettext("<i>Unable to check for updates</i>"));
@@ -72,10 +80,7 @@ if ($_REQUEST['getupdatestatus']) {
 		exit;
 	}
 
-	$version_compare = pkg_version_compare(
-	    $system_version['installed_version'], $system_version['version']);
-
-	switch ($version_compare) {
+	switch ($system_version['pkg_version_compare']) {
 	case '<':
 ?>
 		<div>
@@ -86,18 +91,33 @@ if ($_REQUEST['getupdatestatus']) {
 <?php
 		break;
 	case '=':
-		printf('<span class="text-success">%s</span>', gettext("The system is on the latest version."));
+		printf('<span class="text-success">%s</span>' . "\n",
+		    gettext("The system is on the latest version."));
 		break;
 	case '>':
-		print(gettext("The system is on a later version than<br />the official release."));
+		printf("%s\n", gettext(
+		    "The system is on a later version than official release."));
 		break;
 	default:
-		print(gettext( "<i>Error comparing installed version<br />with latest available</i>"));
+		printf("<i>%s</i>\n", gettext(
+		    "Error comparing installed with latest version available"));
 		break;
 	}
 
+	if (file_exists($cache_file)):
+?>
+	<div>
+		<?printf("%s %s", gettext("Version information updated at"),
+		    date("D M j G:i:s T Y", filemtime($cache_file)));?>
+		    &nbsp;
+		    <a id="updver" href="#" class="fa fa-refresh"></a>
+	</div>
+<?php
+	endif;
+
 	exit;
 } elseif ($_POST['widgetkey']) {
+	set_customwidgettitle($user_settings);
 
 	$validNames = array();
 
@@ -115,16 +135,12 @@ if ($_REQUEST['getupdatestatus']) {
 	header("Location: /index.php");
 }
 
-/*   Adding one second to the system widet update period
- *   will ensure that we update the GUI right after the stats are updated.
- */
-$widgetperiod = isset($config['widgets']['period']) ? $config['widgets']['period'] * 1000 : 10000;
-$widgetperiod += 1000;
-
 $filesystems = get_mounted_filesystems();
 
 $skipsysinfoitems = explode(",", $user_settings['widgets'][$widgetkey]['filter']);
 $rows_displayed = false;
+// use the preference of the first thermal sensor widget, if it's available (false == empty)
+$temp_use_f = (isset($user_settings['widgets']['thermal_sensors-0']) && !empty($user_settings['widgets']['thermal_sensors-0']['thermal_sensors_widget_show_fahrenheit']));
 ?>
 
 <div class="table-responsive">
@@ -140,22 +156,42 @@ $rows_displayed = false;
 		</tr>
 <?php
 	endif;
+	if (!in_array('user', $skipsysinfoitems)):
+		$rows_displayed = true;
+?>
+		<tr>
+			<th><?=gettext("User");?></th>
+			<td><?php echo htmlspecialchars(get_config_user()); ?></td>
+<?php
+	endif;
 	if (!in_array('system', $skipsysinfoitems)):
 		$rows_displayed = true;
 ?>
 		<tr>
 			<th><?=gettext("System");?></th>
 			<td>
-			<?php
+<?php
 				$platform = system_identify_specific_platform();
 				if (isset($platform['descr'])) {
 					echo $platform['descr'];
 				} else {
 					echo gettext('Unknown system');
 				}
-			?>
-			<br />
-			<?=gettext("Serial: ");?><strong><?=system_get_serial();?></strong>
+
+				$serial = system_get_serial();
+				if (!empty($serial)) {
+					print("<br />" . gettext("Serial:") .
+					    " <strong>{$serial}</strong>\n");
+				}
+
+				// If the uniqueID is available, display it here
+				$uniqueid = system_get_uniqueid();
+				if (!empty($uniqueid)) {
+					print("<br />" .
+					    gettext("Netgate Device ID:") .
+					    " <strong>{$uniqueid}</strong>");
+				}
+?>
 			</td>
 		</tr>
 <?php
@@ -181,7 +217,7 @@ $rows_displayed = false;
 				<?=gettext("Version: ");?><strong><?=$biosversion[0];?></strong><br/>
 			<?php endif; ?>
 			<?php if (!empty($biosdate[0])): ?>
-				<?=gettext("Release Date: ");?><strong><?=$biosdate[0];?></strong><br/>
+				<?=gettext("Release Date: ");?><strong><?= date("D M j Y ",strtotime($biosdate[0]));?></strong><br/>
 			<?php endif; ?>
 			</td>
 		</tr>
@@ -204,7 +240,7 @@ $rows_displayed = false;
 			<?php endif; ?>
 			<?php if (!isset($config['system']['firmware']['disablecheck'])): ?>
 				<br /><br />
-				<div id='updatestatus'><?php echo gettext("Obtaining update status "); ?><i class="fa fa-cog fa-spin"></i></div>
+				<div id='updatestatus'><?=$updtext?></div>
 			<?php endif; ?>
 			</td>
 		</tr>
@@ -224,6 +260,9 @@ $rows_displayed = false;
 					<?= htmlspecialchars($cpucount) ?> <?=gettext('CPUs')?>: <?= htmlspecialchars(get_cpu_count(true)); ?>
 				</div>
 		<?php endif; ?>
+				<div id="cpucrypto">
+					<?= get_cpu_crypto_support(); ?>
+				</div>
 			</td>
 		</tr>
 <?php
@@ -239,6 +278,15 @@ $rows_displayed = false;
 		<?php endif; ?>
 <?php
 	endif;
+	$pti = get_single_sysctl('vm.pmap.pti');
+	if (strlen($pti) > 0) {
+?>
+		<tr>
+			<th><?=gettext("Kernel PTI");?></th>
+			<td><?=($pti == 0) ? gettext("Disabled") : gettext("Enabled");?></td>
+		</tr>
+<?php
+	}
 	if (!in_array('uptime', $skipsysinfoitems)):
 		$rows_displayed = true;
 ?>
@@ -312,8 +360,7 @@ $rows_displayed = false;
 			<th><?=gettext("MBUF Usage");?></th>
 			<td>
 				<?php
-					$mbufstext = get_mbuf();
-					$mbufusage = get_mbuf(true);
+					get_mbuf($mbufstext, $mbufusage);
 				?>
 				<div class="progress">
 					<div id="mbufPB" class="progress-bar progress-bar-striped" role="progressbar" aria-valuenow="<?=$mbufusage?>" aria-valuemin="0" aria-valuemax="100" style="width: <?=$mbufusage?>%">
@@ -327,16 +374,16 @@ $rows_displayed = false;
 	if (!in_array('temperature', $skipsysinfoitems)):
 		$rows_displayed = true;
 ?>
-		<?php if (get_temp() != ""): ?>
+		<?php if ($temp_deg_c = get_temp()): ?>
 		<tr>
 			<th><?=gettext("Temperature");?></th>
 			<td>
-				<?php $temp_deg_c = get_temp(); ?>
+				<?php $display_temp = ($temp_use_f) ? $temp_deg_c * 1.8 + 32 : $temp_deg_c; ?>
 				<div class="progress">
-					<div id="tempPB" class="progress-bar progress-bar-striped" role="progressbar" aria-valuenow="<?=$temp_deg_c?>" aria-valuemin="0" aria-valuemax="100" style="width: <?=$temp_deg_c?>%">
+					<div id="tempPB" class="progress-bar progress-bar-striped" role="progressbar" aria-valuenow="<?=$display_temp?>" aria-valuemin="0" aria-valuemax="100" style="width: <?=$temp_use_f ? $temp_deg_c * .212 : $temp_deg_c?>%">
 					</div>
 				</div>
-				<span id="tempmeter"><?= $temp_deg_c . "&deg;C"; ?></span>
+				<span id="tempmeter" data-units="<?=$temp_use_f ? 'F' : 'C';?>"><?=$display_temp?></span>&deg;<?=$temp_use_f ? 'F' : 'C';?>
 			</td>
 		</tr>
 		<?php endif; ?>
@@ -363,8 +410,7 @@ $rows_displayed = false;
 					<div id="cpuPB" class="progress-bar progress-bar-striped" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%">
 					</div>
 				</div>
-				<?php $update_period = (!empty($config['widgets']['period'])) ? $config['widgets']['period'] : "10"; ?>
-				<span id="cpumeter"><?=sprintf(gettext("Updating in %s seconds"), $update_period)?></span>
+				<span id="cpumeter"><?=sprintf(gettext("Retrieving CPU data %s"), "<i class=\"fa fa-gear fa-spin\"></i>")?></span>
 			</td>
 		</tr>
 <?php
@@ -398,7 +444,7 @@ $rows_displayed = false;
 					<div class="progress-bar progress-bar-striped" role="progressbar" aria-valuenow="<?=$swapusage?>" aria-valuemin="0" aria-valuemax="100" style="width: <?=$swapusage?>%">
 					</div>
 				</div>
-				<span><?=$swapusage?>% of <?= sprintf("%.0f", `/usr/sbin/swapinfo -m | /usr/bin/grep -v Device | /usr/bin/awk '{ print $2;}'`) ?> MiB</span>
+				<span><?=$swapusage?>% of <?= sprintf("%.0f", `/usr/sbin/swapinfo -m | /usr/bin/tail -1 | /usr/bin/awk '{ print $2;}'`) ?> MiB</span>
 			</td>
 		</tr>
 		<?php endif; ?>
@@ -408,11 +454,23 @@ $rows_displayed = false;
 	if (!in_array('disk_usage', $skipsysinfoitems)):
 		$rows_displayed = true;
 		$diskidx = 0;
+		$first = true;
 		foreach ($filesystems as $fs):
 ?>
 		<tr>
-			<th><?=gettext("Disk usage");?>&nbsp;( <?=$fs['mountpoint']?> )</th>
+			<th>
+				<?php if ($first): ?>
+					<?=gettext("Disk usage:");?>
+					<br/>
+				<?php endif; ?>
+				&nbsp;&nbsp;&nbsp;&nbsp;
+				<?=$fs['mountpoint']?>
+			</th>
 			<td>
+				<?php if ($first):
+					$first = false; ?>
+					<br/>
+				<?php endif; ?>
 				<div class="progress" >
 					<div id="diskspace<?=$diskidx?>" class="progress-bar progress-bar-striped" role="progressbar" aria-valuenow="<?=$fs['percent_used']?>" aria-valuemin="0" aria-valuemax="100" style="width: <?=$fs['percent_used']?>%">
 					</div>
@@ -444,7 +502,7 @@ $rows_displayed = false;
 <form action="/widgets/widgets/system_information.widget.php" method="post" class="form-horizontal">
     <div class="panel panel-default col-sm-10">
 		<div class="panel-body">
-			<input type="hidden" name="widgetkey" value="<?=$widgetkey; ?>">
+			<input type="hidden" name="widgetkey" value="<?=htmlspecialchars($widgetkey); ?>">
 			<div class="table responsive">
 				<table class="table table-striped table-hover table-condensed">
 					<thead>
@@ -481,50 +539,12 @@ $rows_displayed = false;
 <script type="text/javascript">
 //<![CDATA[
 <?php if ($widget_first_instance): ?>
-<?php if (!isset($config['system']['firmware']['disablecheck'])): ?>
-function systemStatusGetUpdateStatus() {
-	$.ajax({
-		type: 'get',
-		url: '/widgets/widgets/system_information.widget.php',
-		data: 'getupdatestatus=1',
-		dataFilter: function(raw){
-			// We reload the entire widget, strip this block of javascript from it
-			return raw.replace(/<script>([\s\S]*)<\/script>/gi, '');
-		},
-		dataType: 'html',
-		success: function(data){
-			$('[id^=widget-system_information] #updatestatus').html(data);
-		}
-	});
-}
 
-setTimeout('systemStatusGetUpdateStatus()', 4000);
-<?php endif; ?>
-
-function updateMeters() {
-	url = '/getstats.php';
-
-	$.ajax(url, {
-		type: 'get',
-		success: function(data) {
-			response = data || "";
-			if (response != "")
-				stats(data);
-		}
-	});
-
-	setTimer();
-
-}
-
-var update_interval = "<?=$widgetperiod?>";
+var lastTotal = 0;
+var lastUsed = 0;
 
 function setProgress(barName, percent) {
 	$('[id="' + barName + '"]').css('width', percent + '%').attr('aria-valuenow', percent);
-}
-
-function setTimer() {
-	timeout = window.setTimeout('updateMeters()', update_interval);
 }
 
 function stats(x) {
@@ -536,19 +556,23 @@ function stats(x) {
 			return false;
 	}))
 
-	updateUptime(values[2]);
-	updateDateTime(values[5]);
-	updateCPU(values[0]);
-	updateMemory(values[1]);
-	updateState(values[3]);
-	updateTemp(values[4]);
-	updateInterfaceStats(values[6]);
-	updateInterfaces(values[7]);
-	updateCpuFreq(values[8]);
-	updateLoadAverage(values[9]);
-	updateMbuf(values[10]);
-	updateMbufMeter(values[11]);
-	updateStateMeter(values[12]);
+	if (lastTotal === 0) {
+		lastTotal = values[0];
+		lastUsed = values[1];
+	} else {
+		updateCPU(values[0], values[1]);
+	}
+
+	updateUptime(values[3]);
+	updateDateTime(values[6]);
+	updateMemory(values[2]);
+	updateState(values[4]);
+	updateTemp(values[5]);
+	updateCpuFreq(values[7]);
+	updateLoadAverage(values[8]);
+	updateMbuf(values[9]);
+	updateMbufMeter(values[10]);
+	updateStateMeter(values[11]);
 }
 
 function updateMemory(x) {
@@ -575,28 +599,39 @@ function updateMbufMeter(x) {
 	}
 }
 
-function updateCPU(x) {
+function updateCPU(total, used) {
+	if ((lastTotal <= total) && (lastUsed <= used)) { // Just in case it wraps
+		// Calculate the total ticks and the used ticks since the last time it was checked
+		var d_total = total - lastTotal;
+		var d_used = used - lastUsed;
 
-	if ($('#cpumeter')) {
-		$('[id="cpumeter"]').html(x + '%');
-	}
-	if ($('#cpuPB')) {
-		setProgress('cpuPB', parseInt(x));
+		// Convert to percent
+		var x = Math.floor(((d_total - d_used)/d_total) * 100);
+
+		if ($('#cpumeter')) {
+			$('[id="cpumeter"]').html(x + '%');
+		}
+
+		if ($('#cpuPB')) {
+			setProgress('cpuPB', parseInt(x));
+		}
+
+		/* Load CPU Graph widget if enabled */
+		if (widgetActive('cpu_graphs')) {
+			GraphValue(graph[0], x);
+		}
 	}
 
-	/* Load CPU Graph widget if enabled */
-	if (widgetActive('cpu_graphs')) {
-		GraphValue(graph[0], x);
-	}
+	// Update the saved "last" values
+	lastTotal = total;
+	lastUsed = used;
 }
 
 function updateTemp(x) {
-	if ($("#tempmeter")) {
-		$('[id="tempmeter"]').html(x + '&deg;' + 'C');
-	}
-	if ($('#tempPB')) {
-		setProgress('tempPB', parseInt(x));
-	}
+	$("#tempmeter").html(function() {
+		return this.dataset.units === "F" ? parseInt(x * 1.8 + 32, 10) : x;
+	});
+	setProgress('tempPB', parseInt(x));
 }
 
 function updateDateTime(x) {
@@ -638,56 +673,6 @@ function updateLoadAverage(x) {
 	}
 }
 
-function updateInterfaceStats(x) {
-	if (widgetActive("interface_statistics")) {
-		statistics_split = x.split(",");
-		var counter = 1;
-		for (var y=0; y<statistics_split.length-1; y++) {
-			if ($('#stat' + counter)) {
-				$('[id="stat' + counter + '"]').html(statistics_split[y]);
-				counter++;
-			}
-		}
-	}
-}
-
-function updateInterfaces(x) {
-	if (widgetActive("interfaces")) {
-		interfaces_split = x.split("~");
-		interfaces_split.each(function(iface){
-			details = iface.split("^");
-			if (details[2] == '') {
-				ipv4_details = '';
-			} else {
-				ipv4_details = details[2] + '<br />';
-			}
-			switch (details[1]) {
-				case "up":
-					$('[id="' + details[0] + '-up"]').css("display","inline");
-					$('[id="' + details[0] + '-down"]').css("display","none");
-					$('[id="' + details[0] + '-block"]').css("display","none");
-					$('[id="' + details[0] + '-ip"]').html(ipv4_details);
-					$('[id="' + details[0] + '-ipv6"]').html(details[3]);
-					$('[id="' + details[0] + '-media"]').html(details[4]);
-					break;
-				case "down":
-					$('[id="' + details[0] + '-down"]').css("display","inline");
-					$('[id="' + details[0] + '-up"]').css("display","none");
-					$('[id="' + details[0] + '-block"]').css("display","none");
-					$('[id="' + details[0] + '-ip"]').html(ipv4_details);
-					$('[id="' + details[0] + '-ipv6"]').html(details[3]);
-					$('[id="' + details[0] + '-media"]').html(details[4]);
-					break;
-				case "block":
-					$('[id="' + details[0] + '-block"]').css("display","inline");
-					$('[id="' + details[0] + '-down"]').css("display","none");
-					$('[id="' + details[0] + '-up"]').css("display","none");
-					break;
-			}
-		});
-	}
-}
-
 function widgetActive(x) {
 	var widget = $('#' + x + '-container');
 	if ((widget != null) && (widget.css('display') != null) && (widget.css('display') != "none")) {
@@ -697,13 +682,96 @@ function widgetActive(x) {
 	}
 }
 
-/* start updater */
-events.push(function(){
-	setTimer();
-});
+
 <?php endif; // $widget_first_instance ?>
+
 events.push(function(){
+
+	// --------------------- Centralized widget refresh system ------------------------------
+
+	// Callback function called by refresh system when data is retrieved
+	function meters_callback(s) {
+		stats(s);
+	}
+
+	// POST data to send via AJAX
+	var postdata = {
+		ajax: "ajax"
+	 };
+
+	// Create an object defining the widget refresh AJAX call
+	var metersObject = new Object();
+	metersObject.name = "Meters";
+	metersObject.url = "/getstats.php";
+	metersObject.callback = meters_callback;
+	metersObject.parms = postdata;
+	metersObject.freq = 1;
+
+	// Register the AJAX object
+	register_ajax(metersObject);
+
+<?php if (!isset($config['system']['firmware']['disablecheck'])): ?>
+
+	// Callback function called by refresh system when data is retrieved
+	function version_callback(s) {
+		$('[id^=widget-system_information] #updatestatus').html(s);
+
+		// The click handler has to be attached after the div is updated
+		$('#updver').click(function() {
+			updver_ajax();
+		});
+	}
+
+	// POST data to send via AJAX
+	var postdata = {
+		ajax: "ajax",
+		getupdatestatus: "1"
+	 };
+
+	// Create an object defining the widget refresh AJAX call
+	var versionObject = new Object();
+	versionObject.name = "Version";
+	versionObject.url = "/widgets/widgets/system_information.widget.php";
+	versionObject.callback = version_callback;
+	versionObject.parms = postdata;
+	versionObject.freq = 100;
+
+	//Register the AJAX object
+	register_ajax(versionObject);
+<?php endif; ?>
+	// ---------------------------------------------------------------------------------------------------
+
 	set_widget_checkbox_events("#<?=$widget_panel_footer_id?> [id^=show]", "<?=$widget_showallnone_id?>");
+
+	// AJAX function to update the version display with non-cached data
+	function updver_ajax() {
+
+		// Display the "updating" message
+		$('[id^=widget-system_information] #updatestatus').html("<?=$updtext?>"); // <?=$updtext?>");
+
+		$.ajax({
+			type: 'POST',
+			url: "/widgets/widgets/system_information.widget.php",
+			dataType: 'html',
+			data: {
+				ajax: "ajax",
+				getupdatestatus: "2"
+			},
+
+			success: function(data){
+				// Display the returned data
+				$('[id^=widget-system_information] #updatestatus').html(data);
+
+				// Re-attach the click handler (The binding was lost when the <div> content was replaced)
+				$('#updver').click(function() {
+					updver_ajax();
+				});
+			},
+
+			error: function(e){
+			}
+		});
+	}
 });
 //]]>
 </script>

@@ -3,7 +3,7 @@
  * traffic_graphs.widget.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2007 Scott Dale
  * Copyright (c) 2004-2005 T. Lechat <dev@lechat.org>
  * Copyright (c) 2004-2005 Jonathan Watt <jwatt@jwatt.org>.
@@ -26,8 +26,6 @@
  * limitations under the License.
  */
 
-$nocsrf = true;
-
 require_once("guiconfig.inc");
 require_once("pfsense-utils.inc");
 require_once("ipsec.inc");
@@ -45,19 +43,23 @@ if ($_POST) {
 		$user_settings["widgets"]["traffic_graphs"] = array();
 	}
 
-	if (isset($_POST["refreshinterval"])) {
+	if (isset($_POST["refreshinterval"]) && is_numeric($_POST["refreshinterval"]) && ($_POST["refreshinterval"] >= 1) && ($_POST["refreshinterval"] <= 10)) {
 		$user_settings["widgets"]["traffic_graphs"]["refreshinterval"] = $_POST["refreshinterval"];
 	}
 
-	if (isset($_POST["invert"])) {
+	if (isset($_POST["invert"]) && in_array($_POST["invert"], array("true", "false"))) {
 		$user_settings["widgets"]["traffic_graphs"]["invert"] = $_POST["invert"];
 	}
 
-	if (isset($_POST["backgroundupdate"])) {
+	if (isset($_POST["backgroundupdate"]) && in_array($_POST["backgroundupdate"], array("true", "false"))) {
 		$user_settings["widgets"]["traffic_graphs"]["backgroundupdate"] = $_POST["backgroundupdate"];
 	}
 
-	if (isset($_POST["size"])) {
+	if (isset($_POST["smoothfactor"]) && is_numeric($_POST["smoothfactor"]) && ($_POST["smoothfactor"] >= 0) && ($_POST["smoothfactor"] <= 5)) {
+		$user_settings["widgets"]["traffic_graphs"]["smoothfactor"] = $_POST["smoothfactor"];
+	}
+
+	if (isset($_POST["size"]) && in_array($_POST["size"], array("8", "1"))) {
 		$user_settings["widgets"]["traffic_graphs"]["size"] = $_POST["size"];
 	}
 
@@ -102,13 +104,20 @@ if (isset($user_settings['widgets']['traffic_graphs']['backgroundupdate'])) {
 	$tg_backgroundupdate = 'true';
 }
 
+if (isset($user_settings['widgets']['traffic_graphs']['smoothfactor'])) {
+	$tg_smoothfactor = $user_settings['widgets']['traffic_graphs']['smoothfactor'];
+} else {
+	$tg_smoothfactor = 0;
+}
+
 $skip_tg_items = explode(",", $user_settings['widgets']['traffic_graphs']['filter']);
 $tg_displayed = false;
 $tg_displayed_ifs_array = [];
+$tg_displayed_realifsarray = [];
 ?>
-	<script src="/vendor/d3/d3.min.js"></script>
-	<script src="/vendor/nvd3/nv.d3.js"></script>
-	<script src="/vendor/visibility/visibility-1.2.3.min.js"></script>
+	<script src="/vendor/d3/d3.min.js?v=<?=filemtime('/usr/local/www/vendor/d3/d3.min.js')?>"></script>
+	<script src="/vendor/nvd3/nv.d3.js?v=<?=filemtime('/usr/local/www/vendor/nvd3/nv.d3.js')?>"></script>
+	<script src="/vendor/visibility/visibility-1.2.3.min.js?v=<?=filemtime('/usr/local/www/vendor/visibility/visibility-1.2.3.min.js')?>"></script>
 
 	<link href="/vendor/nvd3/nv.d3.css" media="screen, projection" rel="stylesheet" type="text/css">
 
@@ -129,6 +138,7 @@ $tg_displayed_ifs_array = [];
 
 		$tg_displayed = true;
 		$tg_displayed_ifs_array[] = $ifdescr;
+		$tg_displayed_realifsarray[] = get_real_interface($ifdescr);
 		echo '<div id="traffic-chart-' . $ifdescr . '" class="d3-chart traffic-widget-chart">';
 		echo '	<svg></svg>';
 		echo '</div>';
@@ -150,7 +160,7 @@ $tg_displayed_ifs_array = [];
 		<div class="form-group">
 			<label for="traffic-graph-interval" class="col-sm-3 control-label"><?=gettext('Refresh Interval')?></label>
 			<div class="col-sm-9">
-				<input type="number" id="refreshinterval" name="refreshinterval" value="<?=$tg_refreshinterval?>" min="1" max="10" class="form-control" />
+				<input type="number" id="refreshinterval" name="refreshinterval" value="<?=htmlspecialchars($tg_refreshinterval)?>" min="1" max="10" class="form-control" />
 			</div>
 		</div>
 
@@ -205,6 +215,13 @@ $tg_displayed_ifs_array = [];
 			</div>
 		</div>
 
+		<div class="form-group">
+			<label for="smoothfactor" class="col-sm-3 control-label"><?=gettext('Graph Smoothing')?></label>
+			<div class="col-sm-9">
+				<input type='range' id="smoothfactor" name='smoothfactor' class='form-control' min='0' max='5'value="<?= htmlspecialchars($tg_smoothfactor) ?>"/>
+			</div>
+		</div>
+
 		<div class="panel panel-default col-sm-10">
 			<div class="panel-body">
 				<div class="table responsive">
@@ -255,101 +272,22 @@ var graph_interfacenames = <?php
 events.push(function() {
 
 	var InterfaceString = "<?=implode("|", $tg_displayed_ifs_array)?>";
+	var RealInterfaceString = "<?=implode("|", $tg_displayed_realifsarray)?>";
+	window.graph_backgroundupdate = <?=json_encode($tg_backgroundupdate)?>;
 
-	//store saved settings in a fresh localstorage
-	localStorage.clear();
-	localStorage.setItem('interval', <?=$tg_refreshinterval?>);
-	localStorage.setItem('invert', <?=$tg_invert?>);
-	localStorage.setItem('size', <?=$tg_size?>);
-	localStorage.setItem('backgroundupdate', <?=$tg_backgroundupdate?>);
-
+	window.interval = <?=json_encode($tg_refreshinterval)?>;
+	window.invert = JSON.parse(<?=json_encode($tg_invert)?>);
+	window.size = <?=json_encode($tg_size)?>;
+	window.smoothing = <?=json_encode($tg_smoothfactor)?>;
 	window.interfaces = InterfaceString.split("|").filter(function(entry) { return entry.trim() != ''; });
-	window.charts = {};
-    window.myData = {};
-    window.updateIds = 0;
-    window.updateTimerIds = 0;
-    window.latest = [];
-    var refreshInterval = localStorage.getItem('interval');
-    var backgroundupdate = localStorage.getItem('backgroundupdate');
+	window.realinterfaces = RealInterfaceString.split("|").filter(function(entry) { return entry.trim() != ''; });
 
-    var refreshInterval = localStorage.getItem('interval');
-    //TODO make it fall on a second value so it increments better
-    var now = then = new Date(Date.now());
-
-    var nowTime = now.getTime();
-
-	$.each(window.interfaces, function( key, value ) {
-
-		myData[value] = [];
-		updateIds = 0;
-		updateTimerIds = 0;
-
-		var itemIn = new Object();
-		var itemOut = new Object();
-
-		itemIn.key = value + " (in)";
-		if (localStorage.getItem('invert') === "true") { itemIn.area = true; }
-		itemIn.first = true;
-		itemIn.values = [{x: nowTime, y: 0}];
-		myData[value].push(itemIn);
-
-		itemOut.key = value + " (out)";
-		if (localStorage.getItem('invert') === "true") { itemOut.area = true; }
-		itemOut.first = true;
-		itemOut.values = [{x: nowTime, y: 0}];
-		myData[value].push(itemOut);
-
-	});
-
-	if (window.interfaces.length > 0) {
-		draw_graph(refreshInterval, then, backgroundupdate);
-	}
-
-	//re-draw graph when the page goes from inactive (in it's window) to active
-	Visibility.change(function (e, state) {
-		if (backgroundupdate) {
-			return;
-		}
-		if (state === "visible") {
-
-			now = then = new Date(Date.now());
-
-			var nowTime = now.getTime();
-
-			$.each(window.interfaces, function( key, value ) {
-
-				Visibility.stop(updateIds);
-				clearInterval(updateTimerIds);
-
-				myData[value] = [];
-
-				var itemIn = new Object();
-				var itemOut = new Object();
-
-				itemIn.key = value + " (in)";
-				if (localStorage.getItem('invert') === "true") { itemIn.area = true; }
-				itemIn.first = true;
-				itemIn.values = [{x: nowTime, y: 0}];
-				myData[value].push(itemIn);
-
-				itemOut.key = value + " (out)";
-				if (localStorage.getItem('invert') === "true") { itemOut.area = true; }
-				itemOut.first = true;
-				itemOut.values = [{x: nowTime, y: 0}];
-				myData[value].push(itemOut);
-
-			});
-
-			if (window.interfaces.length > 0) {
-				draw_graph(refreshInterval, then, backgroundupdate);
-			}
-
-		}
-	});
+	graph_init();
+	graph_visibilitycheck();
 
 	set_widget_checkbox_events("#widget-<?=$widgetname?>_panel-footer [id^=show]", "showalltgitems");
 });
 //]]>
 </script>
 
-<script src="/js/traffic-graphs.js"></script>
+<script src="/js/traffic-graphs.js?v=<?=filemtime('/usr/local/www/js/traffic-graphs.js')?>"></script>
