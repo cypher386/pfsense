@@ -3,7 +3,7 @@
  * service-utils.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2005-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2005-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2005-2006 Colin Smith (ethethlay@gmail.com)
  * All rights reserved.
  *
@@ -20,13 +20,15 @@
  * limitations under the License.
  */
 
-require_once("globals.inc");
 require_once("captiveportal.inc");
-require_once("openvpn.inc");
+require_once("globals.inc");
+require_once("gwlb.inc");
 require_once("ipsec.inc");
+require_once("openvpn.inc");
+require_once("system.inc");
+require_once("util.inc");
 require_once("vpn.inc");
 require_once("vslb.inc");
-require_once("gwlb.inc");
 
 define("RCFILEPREFIX", "/usr/local/etc/rc.d/");
 function write_rcfile($params) {
@@ -261,6 +263,11 @@ function get_services() {
 	$pconfig['description'] = gettext("NTP clock sync");
 	$services[] = $pconfig;
 
+	$pconfig = array();
+	$pconfig['name'] = "syslogd";
+	$pconfig['description'] = gettext("System Logger Daemon");
+	$services[] = $pconfig;
+
 	if (is_array($config['captiveportal'])) {
 		foreach ($config['captiveportal'] as $zone => $setting) {
 			if (isset($setting['enable'])) {
@@ -401,18 +408,38 @@ function find_service_by_cp_zone($zone) {
 	return array();
 }
 
-function service_name_compare($a, $b) {
-	if (strtolower($a['name']) == strtolower($b['name'])) {
+function service_description_compare($a, $b) {
+	if (strtolower($a['description']) == strtolower($b['description'])) {
 		return 0;
+	}
+	return (strtolower($a['description']) < strtolower($b['description'])) ? -1 : 1;
+}
+
+function service_name_compare($a, $b) {
+	/* If the names are equal, fall back to sorting by description */
+	if (strtolower($a['name']) == strtolower($b['name'])) {
+		return service_description_compare($a, $b);
 	}
 	return (strtolower($a['name']) < strtolower($b['name'])) ? -1 : 1;
 }
 
 function service_dispname_compare($a, $b) {
-	if (strtolower($a['dispname']) == strtolower($b['dispname'])) {
-		return 0;
+	/* If two items have an instance suffix, perform an integer comparison to avoid awkward sorting */
+	if ((strpos($a['dispname'], '_') > 0) && (strpos($b['dispname'], '_') > 0)) {
+		list($adn1, $adn2) = explode('_', $a['dispname'], 2);
+		list($bdn1, $bdn2) = explode('_', $b['dispname'], 2);
+		if (($adn1 == $bdn1) && is_numeric($adn2) && is_numeric($bdn2)) {
+			if ($adn2 == $bdn2) {
+				return 0;
+			}
+			return ((int)$adn2 < (int)$bdn2) ? -1 : 1;
+		}
 	}
-	return (strtolower($a['name']) < strtolower($b['name'])) ? -1 : 1;
+	/* If the display names are equal, compare the internal name */
+	if (strtolower($a['dispname']) == strtolower($b['dispname'])) {
+		return service_name_compare($a, $b);
+	}
+	return (strtolower($a['dispname']) < strtolower($b['dispname'])) ? -1 : 1;
 }
 
 function get_pkg_descr($package_name) {
@@ -620,6 +647,9 @@ function service_control_start($name, $extras) {
 			relayd_configure();
 			filter_configure();
 			break;
+		case 'syslogd':
+			system_syslogd_start();
+			break;
 		default:
 			start_service($name);
 			break;
@@ -690,6 +720,18 @@ function service_control_stop($name, $extras) {
 		case 'relayd':
 			mwexec('pkill relayd');
 			break;
+		case 'syslogd':
+			if (isvalidpid("{$g['varrun_path']}/syslog.pid")) {
+				sigkillbypid("{$g['varrun_path']}/syslog.pid", "TERM");
+				usleep(100000);
+			}
+			if (isvalidpid("{$g['varrun_path']}/syslog.pid")) {
+				sigkillbypid("{$g['varrun_path']}/syslog.pid", "KILL");
+				usleep(100000);
+			}
+			/* Make sure sshlockout_pf stops as well */
+			sigkillbyname("sshlockout_pf", "TERM");
+			break;
 		default:
 			stop_service($name);
 			break;
@@ -759,6 +801,9 @@ function service_control_restart($name, $extras) {
 		case 'relayd':
 			relayd_configure(true);
 			filter_configure();
+			break;
+		case 'syslogd':
+			system_syslogd_start();
 			break;
 		default:
 			restart_service($name);

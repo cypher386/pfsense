@@ -3,7 +3,7 @@
  * vpn_ipsec_phase1.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2008 Shrew Soft Inc
  * All rights reserved.
  *
@@ -147,9 +147,15 @@ if (isset($p1index) && $a_phase1[$p1index]) {
 	if (isset($a_phase1[$p1index]['reauth_enable'])) {
 		$pconfig['reauth_enable'] = true;
 	}
+
 	if (isset($a_phase1[$p1index]['rekey_enable'])) {
 		$pconfig['rekey_enable'] = true;
 	}
+
+	if ($a_phase1[$p1index]['margintime']) {
+		$pconfig['margintime'] = $a_phase1[$p1index]['margintime'];
+	}
+
 	if (isset($a_phase1[$p1index]['responderonly'])) {
 		$pconfig['responderonly'] = true;
 	}
@@ -186,6 +192,7 @@ if (isset($p1index) && $a_phase1[$p1index]) {
 	$pconfig['halgo'] = "sha1";
 	$pconfig['dhgroup'] = "2";
 	$pconfig['lifetime'] = "28800";
+	$pconfig['rekey_enable'] = true;
 	$pconfig['nat_traversal'] = 'on';
 	$pconfig['mobike'] = 'off';
 	$pconfig['dpd_enable'] = true;
@@ -267,6 +274,14 @@ if ($_POST) {
 
 	if (($pconfig['lifetime'] && !is_numericint($pconfig['lifetime']))) {
 		$input_errors[] = gettext("The P1 lifetime must be an integer.");
+	}
+
+	if (!isset($pconfig['rekey_enable']) && $pconfig['margintime']) {
+		if(!is_numericint($pconfig['margintime'])){
+			 $input_errors[] = gettext("The margintime must be an integer.");
+		} else if(intval($pconfig['margintime']) >= intval($pconfig['lifetime'])){
+			 $input_errors[] = gettext("The margintime must be smaller than the P1 lifetime.");
+		}
 	}
 
 	if ($pconfig['remotegw']) {
@@ -505,10 +520,17 @@ if ($_POST) {
 		} else {
 			unset($ph1ent['reauth_enable']);
 		}
+
 		if (isset($pconfig['rekey_enable'])) {
 			$ph1ent['rekey_enable'] = true;
 		} else {
 			unset($ph1ent['rekey_enable']);
+		}
+
+		if (!isset($pconfig['rekey_enable'])) {
+			$ph1ent['margintime'] = $pconfig['margintime'];
+		} else {
+			unset($ph1ent['margintime']);
 		}
 
 		if (isset($pconfig['responderonly'])) {
@@ -869,6 +891,13 @@ $section->addInput(new Form_Checkbox(
 	$pconfig['rekey_enable']
 ));
 
+$section->addInput(new Form_Input(
+	'margintime',
+	'Margintime (Seconds)',
+	'number',
+	$pconfig['margintime']
+))->setHelp('How long before connection expiry or keying-channel expiry should attempt to negotiate a replacement begin.');
+
 $section->addInput(new Form_Checkbox(
 	'reauth_enable',
 	'Disable Reauth',
@@ -1106,6 +1135,12 @@ events.push(function() {
 		}
 	}
 
+	function rekeychkbox_change() {
+		hide = $('#rekey_enable').prop('checked');
+
+		hideInput('margintime', hide);
+  }
+
 	function dpdchkbox_change() {
 		hide = !$('#dpd_enable').prop('checked');
 
@@ -1128,6 +1163,11 @@ events.push(function() {
 	//}
 
 	// ---------- Monitor elements for change and call the appropriate display functions ----------
+
+	 // Enable Rekey
+	$('#rekey_enable').click(function () {
+		rekeychkbox_change();
+	});
 
 	 // Enable DPD
 	$('#dpd_enable').click(function () {
@@ -1170,6 +1210,7 @@ events.push(function() {
 	iketype_change();
 	methodsel_change();
 	ealgosel_change(<?=$keyset?>);
+	rekeychkbox_change();
 	dpdchkbox_change();
 
 	// ---------- On initial page load ------------------------------------------------------------

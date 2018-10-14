@@ -3,7 +3,7 @@
  * system_usermanager.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2008 Shrew Soft Inc.
  * Copyright (c) 2005 Paul Taylor <paultaylor@winn-dixie.com>
  * All rights reserved.
@@ -98,6 +98,7 @@ if (isset($id) && $a_user[$id]) {
 	$pconfig['webguifixedmenu'] = $a_user[$id]['webguifixedmenu'];
 	$pconfig['webguihostnamemenu'] = $a_user[$id]['webguihostnamemenu'];
 	$pconfig['dashboardcolumns'] = $a_user[$id]['dashboardcolumns'];
+	$pconfig['interfacessort'] = isset($a_user[$id]['interfacessort']);
 	$pconfig['dashboardavailablewidgetspanel'] = isset($a_user[$id]['dashboardavailablewidgetspanel']);
 	$pconfig['systemlogsfilterpanel'] = isset($a_user[$id]['systemlogsfilterpanel']);
 	$pconfig['systemlogsmanagelogpanel'] = isset($a_user[$id]['systemlogsmanagelogpanel']);
@@ -128,6 +129,8 @@ if ($_GET['act'] == "deluser") {
 		conf_mount_ro();
 		$userdeleted = $a_user[$id]['name'];
 		unset($a_user[$id]);
+		/* Reindex the array to avoid operating on an incorrect index https://redmine.pfsense.org/issues/7733 */
+		$a_user = array_values($a_user);
 		write_config();
 		$savemsg = sprintf(gettext("User %s successfully deleted."), $userdeleted);
 	}
@@ -173,6 +176,8 @@ if (isset($_POST['dellall'])) {
 			} else {
 				$savemsg = sprintf(gettext("Users %s successfully deleted."), $deleted_users);
 			}
+			/* Reindex the array to avoid operating on an incorrect index https://redmine.pfsense.org/issues/7733 */
+			$a_user = array_values($a_user);
 			write_config($savemsg);
 		}
 	}
@@ -305,6 +310,10 @@ if ($_POST['save']) {
 			$input_errors[] = gettext("Invalid internal Certificate Authority") . "\n";
 		}
 	}
+	validate_webguicss_field($input_errors, $_POST['webguicss']);
+	validate_webguifixedmenu_field($input_errors, $_POST['webguifixedmenu']);
+	validate_webguihostnamemenu_field($input_errors, $_POST['webguihostnamemenu']);
+	validate_dashboardcolumns_field($input_errors, $_POST['dashboardcolumns']);
 
 	if (!$input_errors) {
 
@@ -366,6 +375,12 @@ if ($_POST['save']) {
 			$userent['webguihostnamemenu'] = $_POST['webguihostnamemenu'];
 		} else {
 			unset($userent['webguihostnamemenu']);
+		}
+
+		if ($_POST['interfacessort']) {
+			$userent['interfacessort'] = true;
+		} else {
+			unset($userent['interfacessort']);
 		}
 
 		if ($_POST['dashboardavailablewidgetspanel']) {
@@ -984,6 +999,7 @@ events.push(function() {
 		hideInput('webguifixedmenu', !adv);
 		hideInput('webguihostnamemenu', !adv);
 		hideInput('dashboardcolumns', !adv);
+		hideCheckbox('interfacessort', !adv);
 		hideCheckbox('dashboardavailablewidgetspanel', !adv);
 		hideCheckbox('systemlogsfilterpanel', !adv);
 		hideCheckbox('systemlogsmanagelogpanel', !adv);

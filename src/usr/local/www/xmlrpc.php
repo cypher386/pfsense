@@ -3,7 +3,7 @@
  * xmlrpc.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2005 Colin Smith
  * All rights reserved.
  *
@@ -541,6 +541,10 @@ function get_notices_xmlrpc($raw_params) {
 
 	return $response;
 }
+
+// run script untill its done and can 'unlock' the xmlrpc.lock, this prevents hanging php-fpm / webgui 
+ignore_user_abort(true); 
+set_time_limit(0);
 
 $xmlrpclockkey = lock('xmlrpc', LOCK_EX);
 

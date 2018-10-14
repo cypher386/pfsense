@@ -3,7 +3,7 @@
  * vpn_openvpn_server.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2008 Shrew Soft Inc.
  * All rights reserved.
  *
@@ -1628,7 +1628,7 @@ events.push(function() {
 	});
 
 	 // Tun/tap mode
-	$('#dev_mode, #serverbridge_dhcp').click(function () {
+	$('#dev_mode, #serverbridge_dhcp').change(function () {
 		tuntap_change();
 	});
 

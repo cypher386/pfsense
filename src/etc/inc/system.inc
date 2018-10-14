@@ -3,7 +3,7 @@
  * system.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally part of m0n0wall (http://m0n0.ch/wall)
@@ -337,13 +337,15 @@ function system_hosts_local_entries() {
 	$hosts = array();
 	$hosts[] = array(
 	    'ipaddr' => '127.0.0.1',
-	    'fqdn' => 'localhost',
-	    'name' => 'localhost.' . $syscfg['domain']
+	    'fqdn' => 'localhost.' . $syscfg['domain'],
+	    'name' => 'localhost',
+	    'domain' => $syscfg['domain']
 	);
 	$hosts[] = array(
 	    'ipaddr' => '::1',
-	    'fqdn' => 'localhost',
-	    'name' => 'localhost.' . $syscfg['domain']
+	    'fqdn' => 'localhost.' . $syscfg['domain'],
+	    'name' => 'localhost',
+	    'domain' => $syscfg['domain']
 	);
 
 	if ($config['interfaces']['lan']) {
@@ -362,7 +364,9 @@ function system_hosts_local_entries() {
 		if (is_ipaddrv4($cfgip)) {
 			$hosts[] = array(
 			    'ipaddr' => $cfgip,
-			    'fqdn' => $local_fqdn
+			    'fqdn' => $local_fqdn,
+			    'name' => $syscfg['hostname'],
+			    'domain' => $syscfg['domain']
 			);
 			$hosts_if_found = true;
 		}
@@ -370,7 +374,9 @@ function system_hosts_local_entries() {
 		if (is_ipaddrv6($cfgipv6)) {
 			$hosts[] = array(
 			    'ipaddr' => $cfgipv6,
-			    'fqdn' => $local_fqdn
+			    'fqdn' => $local_fqdn,
+			    'name' => $syscfg['hostname'],
+			    'domain' => $syscfg['domain']
 			);
 			$hosts_if_found = true;
 		}
@@ -401,7 +407,9 @@ function system_hosts_override_entries($dnscfg) {
 
 		$hosts[] = array(
 		    'ipaddr' => $host['ip'],
-		    'fqdn' => $fqdn
+		    'fqdn' => $fqdn,
+		    'name' => $host['host'],
+		    'domain' => $host['domain']
 		);
 
 		if (!is_array($host['aliases']) ||
@@ -418,7 +426,9 @@ function system_hosts_override_entries($dnscfg) {
 
 			$hosts[] = array(
 			    'ipaddr' => $host['ip'],
-			    'fqdn' => $fqdn
+			    'fqdn' => $fqdn,
+			    'name' => $alias['host'],
+			    'domain' => $alias['domain']
 			);
 		}
 	}
@@ -451,17 +461,20 @@ function system_hosts_dhcpd_entries() {
 			}
 
 			$fqdn = $host['hostname'] . ".";
+			$domain = "";
 			if ($host['domain']) {
-				$fqdn .= $host['domain'];
+				$domain = $host['domain'];
 			} elseif ($dhcpifconf['domain']) {
-				$fqdn .= $dhcpifconf['domain'];
+				$domain = $dhcpifconf['domain'];
 			} else {
-				$fqdn .= $syscfg['domain'];
+				$domain = $syscfg['domain'];
 			}
 
 			$hosts[] = array(
 			    'ipaddr' => $host['ipaddr'],
-			    'fqdn' => $fqdn
+			    'fqdn' => $fqdn . $domain,
+			    'name' => $host['hostname'],
+			    'domain' => $domain
 			);
 		}
 	}
@@ -505,17 +518,20 @@ function system_hosts_dhcpd_entries() {
 			}
 
 			$fqdn = $host['hostname'] . ".";
+			$domain = "";
 			if ($host['domain']) {
-				$fqdn .= $host['domain'];
-			} else if ($dhcpifconf['domain']) {
-				$fqdn .= $dhcpifconf['domain'];
+				$domain = $host['domain'];
+			} elseif ($dhcpifconf['domain']) {
+				$domain = $dhcpifconf['domain'];
 			} else {
-				$fqdn .= $syscfg['domain'];
+				$domain = $syscfg['domain'];
 			}
 
 			$hosts[] = array(
 			    'ipaddr' => $ipaddrv6,
-			    'fqdn' => $fqdn
+			    'fqdn' => $fqdn . $domain,
+			    'name' => $host['hostname'],
+			    'domain' => $domain
 			);
 		}
 	}
@@ -566,9 +582,11 @@ function system_hosts_generate() {
 
 	$hosts_array = system_hosts_entries($dnsmasqcfg);
 	foreach ($hosts_array as $host) {
-		$hosts .= "{$host['ipaddr']}\t{$host['fqdn']}";
-		if (!empty($host['name'])) {
-			$hosts .= " {$host['name']}";
+		$hosts .= "{$host['ipaddr']}\t";
+		if ($host['name'] == "localhost") {
+			$hosts .= "{$host['name']} {$host['fqdn']}";
+		} else {
+			$hosts .= "{$host['fqdn']} {$host['name']}";
 		}
 		$hosts .= "\n";
 	}
@@ -977,8 +995,12 @@ function system_syslogd_get_remote_servers($syslogcfg, $facility = "*.*") {
 
 function clear_log_file($logfile = "/var/log/system.log", $restart_syslogd = true) {
 	global $config, $g;
+
 	if ($restart_syslogd) {
-		exec("/usr/bin/killall syslogd");
+		/* syslogd does not react well to clog rewriting the file while it is running. */
+		if (isvalidpid("{$g['varrun_path']}/syslog.pid")) {
+			sigkillbypid("{$g['varrun_path']}/syslog.pid", "KILL");
+		}
 	}
 	if (isset($config['system']['disablesyslogclog'])) {
 		unlink($logfile);
@@ -995,7 +1017,12 @@ function clear_log_file($logfile = "/var/log/system.log", $restart_syslogd = tru
 
 function clear_all_log_files($restart = false) {
 	global $g;
-	exec("/usr/bin/killall syslogd");
+	if ($restart) {
+		/* syslogd does not react well to clog rewriting the file while it is running. */
+		if (isvalidpid("{$g['varrun_path']}/syslog.pid")) {
+			sigkillbypid("{$g['varrun_path']}/syslog.pid", "KILL");
+		}
+	}
 
 	$log_files = array("system", "filter", "dhcpd", "vpn", "poes", "l2tps", "openvpn", "portalauth", "ipsec", "ppp", "relayd", "wireless", "nginx", "ntpd", "gateways", "resolver", "routing");
 	foreach ($log_files as $lfile) {
@@ -1014,7 +1041,7 @@ function clear_all_log_files($restart = false) {
 	return;
 }
 
-function system_syslogd_start() {
+function system_syslogd_start($sighup = false) {
 	global $config, $g;
 	if (isset($config['system']['developerspew'])) {
 		$mt = microtime();
@@ -1042,7 +1069,7 @@ function system_syslogd_start() {
 
 	$syslogd_extra = "";
 	if (isset($syslogcfg)) {
-		$separatelogfacilities = array('ntp', 'ntpd', 'ntpdate', 'charon', 'ipsec_starter', 'openvpn', 'poes', 'l2tps', 'relayd', 'hostapd', 'dnsmasq', 'named', 'filterdns', 'unbound', 'dhcpd', 'dhcrelay', 'dhclient', 'dhcp6c', 'dpinger', 'radvd', 'routed', 'olsrd', 'zebra', 'ospfd', 'bgpd', 'miniupnpd', 'filterlog');
+		$separatelogfacilities = array('ntp', 'ntpd', 'ntpdate', 'charon', 'ipsec_starter', 'openvpn', 'poes', 'l2tps', 'relayd', 'hostapd', 'dnsmasq', 'named', 'filterdns', 'unbound', 'dhcpd', 'dhcrelay', 'dhclient', 'dhcp6c', 'dpinger', 'radvd', 'routed', 'olsrd', 'zebra', 'ospfd', 'ospf6d', 'bgpd', 'miniupnpd', 'filterlog');
 		$syslogconf = "";
 		if ($config['installedpackages']['package']) {
 			foreach ($config['installedpackages']['package'] as $package) {
@@ -1056,7 +1083,7 @@ function system_syslogd_start() {
 			}
 		}
 		$facilitylist = implode(',', array_unique($separatelogfacilities));
-		$syslogconf .= "!radvd,routed,olsrd,zebra,ospfd,bgpd,miniupnpd\n";
+		$syslogconf .= "!radvd,routed,olsrd,zebra,ospfd,ospf6d,bgpd,miniupnpd\n";
 		if (!isset($syslogcfg['disablelocallogging'])) {
 			$syslogconf .= "*.*								{$log_directive}{$g['varlog_path']}/routing.log\n";
 		}
@@ -1245,18 +1272,27 @@ EOD;
 		$syslogd_sockets .= " -l {$log_socket}";
 	}
 
-	if (isvalidpid("{$g['varrun_path']}/syslog.pid")) {
-		sigkillbypid("{$g['varrun_path']}/syslog.pid", "TERM");
-		usleep(100000); // syslogd often doesn't respond to a TERM quickly enough for the starting of syslogd below to be successful
+	/* If HUP was requested, but syslogd is not running, restart it instead. */
+	if ($sighup && !isvalidpid("{$g['varrun_path']}/syslog.pid")) {
+		$sighup = false;
 	}
 
-	if (isvalidpid("{$g['varrun_path']}/syslog.pid")) {
-		// if it still hasn't responded to the TERM, KILL it.
-		sigkillbypid("{$g['varrun_path']}/syslog.pid", "KILL");
-		usleep(100000);
-	}
+	if (!$sighup) {
+		if (isvalidpid("{$g['varrun_path']}/syslog.pid")) {
+			sigkillbypid("{$g['varrun_path']}/syslog.pid", "TERM");
+			usleep(100000); // syslogd often doesn't respond to a TERM quickly enough for the starting of syslogd below to be successful
+		}
 
-	$retval = mwexec_bg("/usr/sbin/syslogd -s -c -c {$syslogd_sockets} -P {$g['varrun_path']}/syslog.pid {$syslogd_extra}");
+		if (isvalidpid("{$g['varrun_path']}/syslog.pid")) {
+			// if it still hasn't responded to the TERM, KILL it.
+			sigkillbypid("{$g['varrun_path']}/syslog.pid", "KILL");
+			usleep(100000);
+		}
+
+		$retval = mwexec_bg("/usr/sbin/syslogd -s -c -c {$syslogd_sockets} -P {$g['varrun_path']}/syslog.pid {$syslogd_extra}");
+	} else {
+		$retval = sigkillbypid("{$g['varrun_path']}/syslog.pid", "HUP");
+	}
 
 	if (platform_booting()) {
 		echo gettext("done.") . "\n";
@@ -1281,6 +1317,7 @@ function system_webgui_create_certificate() {
 	$cert = array();
 	$cert['refid'] = uniqid();
 	$cert['descr'] = sprintf(gettext("webConfigurator default (%s)"), $cert['refid']);
+	$cert_hostname = "{$config['system']['hostname']}-{$cert['refid']}";
 
 	$dn = array(
 		'countryName' => "US",
@@ -1288,7 +1325,8 @@ function system_webgui_create_certificate() {
 		'localityName' => "Locality",
 		'organizationName' => "{$g['product_name']} webConfigurator Self-Signed Certificate",
 		'emailAddress' => "admin@{$config['system']['hostname']}.{$config['system']['domain']}",
-		'commonName' => "{$config['system']['hostname']}-{$cert['refid']}");
+		'commonName' => $cert_hostname,
+		'subjectAltName' => "DNS:{$cert_hostname}");
 	$old_err_level = error_reporting(0); /* otherwise openssl_ functions throw warnings directly to a page screwing menu tab */
 	if (!cert_create($cert, null, 2048, 2000, $dn, "self-signed", "sha256")) {
 		while ($ssl_err = openssl_error_string()) {
@@ -1338,12 +1376,13 @@ function system_webgui_start() {
 			$portarg = "443";
 		}
 		$ca = ca_chain($cert);
+		$hsts = isset($config['system']['webgui']['disablehsts']) ? false : true;
 	}
 
 	/* generate nginx configuration */
 	system_generate_nginx_config("{$g['varetc_path']}/nginx-webConfigurator.conf",
 		$crt, $key, $ca, "nginx-webConfigurator.pid", $portarg, "/usr/local/www/",
-		"cert.crt", "cert.key");
+		"cert.crt", "cert.key", false, $hsts);
 
 	/* kill any running nginx */
 	killbypid("{$g['varrun_path']}/nginx-webConfigurator.pid");
@@ -1375,7 +1414,8 @@ function system_generate_nginx_config($filename,
 	$document_root = "/usr/local/www/",
 	$cert_location = "cert.crt",
 	$key_location = "cert.key",
-	$captive_portal = false) {
+	$captive_portal = false,
+	$hsts = true) {
 
 	global $config, $g;
 
@@ -1498,7 +1538,9 @@ EOD;
 		}
 		$nginx_config .= "\t\tssl_ciphers \"EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH\";\n";
 		$nginx_config .= "\t\tssl_prefer_server_ciphers       on;\n";
-		$nginx_config .= "\t\tadd_header Strict-Transport-Security \"max-age=31536000\";\n";
+		if ($captive_portal === false && $hsts !== false) {
+			$nginx_config .= "\t\tadd_header Strict-Transport-Security \"max-age=31536000\";\n";
+		}
 		$nginx_config .= "\t\tadd_header X-Content-Type-Options nosniff;\n";
 		$nginx_config .= "\t\tssl_session_tickets off;\n";
 		$nginx_config .= "\t\tssl_dhparam /etc/dh-parameters.4096;\n";
@@ -1535,7 +1577,10 @@ EOD;
 		location / {
 			index  index.php index.html index.htm;
 		}
-
+		location ~ \.inc$ {
+			deny all;
+			return 403;
+		}
 		location ~ \.php$ {
 			try_files \$uri =404; #  This line closes a potential security hole
 			# ensuring users can't execute uploaded files
@@ -2326,7 +2371,25 @@ function system_get_serial() {
 		return $serial;
 	}
 
-	return get_single_sysctl('kern.hostuuid');
+	return "";
+}
+
+function system_get_uniqueid() {
+	global $g;
+
+	$uniqueid_file="{$g['vardb_path']}/uniqueid";
+
+	if (empty($g['uniqueid'])) {
+		if (!file_exists($uniqueid_file)) {
+			mwexec("/usr/sbin/gnid > {$g['vardb_path']}/uniqueid " .
+			    "2>/dev/null");
+		}
+		if (file_exists($uniqueid_file)) {
+			$g['uniqueid'] = @file_get_contents($uniqueid_file);
+		}
+	}
+
+	return ($g['uniqueid'] ?: '');
 }
 
 /*
@@ -2386,6 +2449,7 @@ function system_identify_specific_platform() {
 			return (array('name' => 'XG-1540', 'descr' => 'Super Micro XG-1540'));
 			break;
 		case 'apu2':
+		case 'APU2':
 			return (array('name' => 'apu2', 'descr' => 'PC Engines APU2'));
 			break;
 		case 'Virtual Machine':
@@ -2398,6 +2462,13 @@ function system_identify_specific_platform() {
 	/* the rest of the code only deals with 'embedded' platforms */
 	if ($g['platform'] != 'nanobsd') {
 		return array('name' => $g['platform'], 'descr' => $g['platform']);
+	}
+
+	$_gb = exec('/bin/kenv -q smbios.planar.product 2>/dev/null',
+	    $planar_product);
+	if (isset($planar_product[0]) &&
+	    $planar_product[0] == 'X10SDV-8C-TLN4F+') {
+		return array('name' => 'XG-1537', 'descr' => 'Super Micro XG-1537');
 	}
 
 	if (strpos($hw_model, "PC Engines WRAP") !== false) {

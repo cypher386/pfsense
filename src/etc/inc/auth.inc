@@ -6,7 +6,7 @@
  * Copyright (c) 2003-2006 Manuel Kasper <mk@neon1.net>
  * Copyright (c) 2005-2006 Bill Marquette <bill.marquette@gmail.com>
  * Copyright (c) 2006 Paul Taylor <paultaylor@winn-dixie.com>
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -67,6 +67,31 @@ $security_passed = true;
 
 /* If this function doesn't exist, we're being called from Captive Portal or
    another internal subsystem which does not include authgui.inc */
+if (function_exists("display_error_form")) {
+	/* Extra layer of lockout protection. Check if the user is in the GUI
+	 * lockout table before processing a request */
+
+	/* Fetch the contents of the lockout table. */
+	exec("/sbin/pfctl -t 'webConfiguratorlockout' -T show", $entries);
+
+	/* If the client is in the lockout table, print an error, kill states, and exit */
+	if (in_array($_SERVER['REMOTE_ADDR'], array_map('trim', $entries))) {
+		if (!security_checks_disabled()) {
+			/* They may never see the error since the connection will be cut off, but try to be nice anyhow. */
+			display_error_form("501", gettext("Access Denied<br/><br/>Access attempt from a temporarily locked out client address.<br /><br />Try accessing the firewall again after the lockout expires."));
+			/* If they are locked out, they shouldn't have a state. Disconnect their connections. */
+			$retval = pfSense_kill_states($_SERVER['REMOTE_ADDR']);
+			if (is_ipaddrv4($_SERVER['REMOTE_ADDR'])) {
+				$retval = pfSense_kill_states("0.0.0.0/0", $_SERVER['REMOTE_ADDR']);
+			} elseif (is_ipaddrv6($_SERVER['REMOTE_ADDR'])) {
+				$retval = pfSense_kill_states("::", $_SERVER['REMOTE_ADDR']);
+			}
+			exit;
+		}
+		$security_passed = false;
+	}
+}
+
 if (function_exists("display_error_form") && !isset($config['system']['webgui']['nodnsrebindcheck'])) {
 	/* DNS ReBinding attack prevention.  https://redmine.pfsense.org/issues/708 */
 	$found_host = false;
@@ -898,7 +923,7 @@ function ldap_test_bind($authcfg) {
 		$ldapbindpw = $authcfg['ldap_bindpw'];
 		$ldapver = $authcfg['ldap_protver'];
 		$ldaptimeout = is_numeric($authcfg['ldap_timeout']) ? $authcfg['ldap_timeout'] : 5;
-		if (empty($ldapbndun) || empty($ldapbindpw)) {
+		if (empty($ldapbindun) || empty($ldapbindpw)) {
 			$ldapanon = true;
 		} else {
 			$ldapanon = false;
@@ -1542,6 +1567,8 @@ function get_user_settings($username) {
 	$settings['webgui']['dashboardcolumns'] = $config['system']['webgui']['dashboardcolumns'];
 	$settings['webgui']['webguihostnamemenu'] = $config['system']['webgui']['webguihostnamemenu'];
 	$settings['webgui']['webguicss'] = $config['system']['webgui']['webguicss'];
+	$settings['webgui']['logincss'] = $config['system']['webgui']['logincss'];
+	$settings['webgui']['interfacessort'] = isset($config['system']['webgui']['interfacessort']);
 	$settings['webgui']['dashboardavailablewidgetspanel'] = isset($config['system']['webgui']['dashboardavailablewidgetspanel']);
 	$settings['webgui']['webguifixedmenu'] = isset($config['system']['webgui']['webguifixedmenu']);
 	$settings['webgui']['webguileftcolumnhyper'] = isset($config['system']['webgui']['webguileftcolumnhyper']);
@@ -1565,6 +1592,7 @@ function get_user_settings($username) {
 		if (isset($user['webguihostnamemenu'])) {
 			$settings['webgui']['webguihostnamemenu'] = $user['webguihostnamemenu'];
 		}
+		$settings['webgui']['interfacessort'] = isset($user['interfacessort']);
 		$settings['webgui']['dashboardavailablewidgetspanel'] = isset($user['dashboardavailablewidgetspanel']);
 		$settings['webgui']['webguifixedmenu'] = isset($user['webguifixedmenu']);
 		$settings['webgui']['webguileftcolumnhyper'] = isset($user['webguileftcolumnhyper']);
@@ -1746,7 +1774,7 @@ function session_auth() {
 			exit;
 		} else {
 			/* give the user an error message */
-			$_SESSION['Login_Error'] = "Username or Password incorrect";
+			$_SESSION['Login_Error'] = gettext("Username or Password incorrect");
 			log_auth("webConfigurator authentication error for '{$_POST['usernamefld']}' from {$_SERVER['REMOTE_ADDR']}");
 			if (isAjax()) {
 				echo "showajaxmessage('{$_SESSION['Login_Error']}');";

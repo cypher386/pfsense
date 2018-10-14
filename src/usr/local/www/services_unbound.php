@@ -3,7 +3,7 @@
  * services_unbound.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2014 Warren Baker (warren@pfsense.org)
  * All rights reserved.
  *
@@ -186,6 +186,10 @@ if ($_POST) {
 
 		if ((isset($pconfig['regdhcp']) || isset($pconfig['regdhcpstatic'])) && !is_dhcp_server_enabled()) {
 			$input_errors[] = gettext("DHCP Server must be enabled for DHCP Registration to work in DNS Resolver.");
+		}
+
+		if (($pconfig['system_domain_local_zone_type'] == "redirect") && isset($pconfig['regdhcp'])) {
+			$input_errors[] = gettext('A System Domain Local Zone Type of "redirect" is not compatible with DHCP Registration.');
 		}
 
 		$display_custom_options = $pconfig['custom_options'];

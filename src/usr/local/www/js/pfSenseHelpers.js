@@ -2,7 +2,7 @@
  * pfSenseHelpers.js
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -697,14 +697,15 @@ $('[id*=restartservice-], [id*=stopservice-], [id*=startservice-]').click(functi
 		name = args[0];
 		mode_zone = args[2];
 		id = args[3];
-	} else if (args[0] == "cpativeportal") {
+	} else if (args[0] == "captiveportal") {
 		action = args[1];
 		name = args[0];
 		mode_zone = args[2];
 		id = args[3];
 	} else {
 		action = args[0];
-		name = args[1];
+		args.shift();
+		name = args.join('-');
 	}
 
 	$(this).children('i').removeClass().addClass('fa fa-cog fa-spin text-success');

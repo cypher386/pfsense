@@ -5,7 +5,7 @@
  * part of pfSense (https://www.pfsense.org)
  * Copyright (c) 2005 Bill Marquette
  * Copyright (c) 2006 Peter Allgeyer
- * Copyright (c) 2008-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2008-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally part of m0n0wall (http://m0n0.ch/wall)
@@ -167,11 +167,11 @@ function fix_rule_label($descr) {
 	}
 }
 
-function is_bogonsv6_used() {
+function is_bogonsv6_used($force = false) {
 	global $config, $g;
 	# Only use bogonsv6 table if IPv6 Allow is on, and at least 1 enabled interface also has "blockbogons" enabled.
 	$usebogonsv6 = false;
-	if (isset($config['system']['ipv6allow'])) {
+	if (isset($config['system']['ipv6allow']) || $force) {
 		foreach ($config['interfaces'] as $ifacedata) {
 			if (isset($ifacedata['enable']) && isset($ifacedata['blockbogons'])) {
 				$usebogonsv6 = true;
@@ -442,11 +442,29 @@ function filter_configure_sync($delete_states_if_needed = true) {
 		$mt = microtime();
 		echo "pfctl being called at $mt\n";
 	}
-	unset($rules_loading, $rules_error);
-	$_grbg = exec("/sbin/pfctl -o basic -f {$g['tmp_path']}/rules.debug 2>&1", $rules_error, $rules_loading);
-	if (isset($config['system']['developerspew'])) {
-		$mt = microtime();
-		echo "pfctl done at $mt\n";
+	
+	for ($pfctl_try = 1; $pfctl_try <= 10; $pfctl_try++) {
+		unset($rules_loading, $rules_error);
+		$_grbg = exec("/sbin/pfctl -o basic -f {$g['tmp_path']}/rules.debug 2>&1", $rules_error, $rules_loading);
+		if (isset($config['system']['developerspew'])) {
+			$mt = microtime();
+			echo "pfctl done at $mt\n";
+		}
+		if ($rules_loading == 0) {
+			// continue when successful
+			if (isset($config['system']['developerspew']) && $pfctl_try > 1) {
+				file_notice("filter_load", sprintf(gettext('pf was busy but succeeded after %s tries'), $pfctl_try), "Filter Reload", "");
+			}
+			break;
+		}
+		if (strstr($_grbg, "DIOCADDALTQ: Device busy") || 
+		    strstr($_grbg, "DIOCXCOMMIT: Device busy")) {
+			// when busy status is returned retry after a short pause
+			usleep(200000);//try again after 200 ms..unless it still fails after 10x
+		} else {
+			// rule loading failed, no need to retry with the same ruleset
+			break;
+		}
 	}
 	/*
 	 * check for a error while loading the rules file.	if an error has occurred
@@ -591,10 +609,7 @@ function filter_generate_scrubing() {
 		}
 		/* set up MSS clamping */
 		if (($scrubcfg['mss'] <> "") &&
-		    (is_numeric($scrubcfg['mss'])) &&
-		    ($scrubcfg['if'] != "pppoe") &&
-		    ($scrubcfg['if'] != "pptp") &&
-		    ($scrubif['if'] != "l2tp")) {
+		    (is_numeric($scrubcfg['mss']))) {
 			$mssclamp = "max-mss " . (intval($scrubcfg['mss'] - 40));
 		} else {
 			$mssclamp = "";
@@ -669,8 +684,8 @@ function filter_generate_nested_alias_recurse($name, $alias, &$aliasnesting, &$a
 			}
 		} else if (!isset($aliasaddrnesting[$address])) {
 			if (!is_ipaddr($address) && !is_subnet($address) && !((($alias_type == 'port') || ($alias_type == 'url_ports')) && is_port_or_range($address)) && is_hostname($address)) {
+				$use_filterdns = true;
 				if (!isset($filterdns["{$address}{$name}"])) {
-					$use_filterdns = true;
 					$filterdns["{$address}{$name}"] = "pf {$address} {$name}\n";
 				}
 				continue;
@@ -721,7 +736,7 @@ function filter_expand_alias_array($alias_name) {
 }
 
 function filter_generate_aliases() {
-	global $config, $FilterIflist, $after_filter_configure_run;
+	global $g, $config, $FilterIflist, $after_filter_configure_run;
 
 	if (isset($config['system']['developerspew'])) {
 		$mt = microtime();
@@ -777,6 +792,15 @@ function filter_generate_aliases() {
 	$aliases .= "table <bogons> persist file \"/etc/bogons\"\n";
 	if (is_bogonsv6_used()) {
 		$aliases .= "table <bogonsv6> persist file \"/etc/bogonsv6\"\n";
+		if (!isset($config['system']['maximumtableentries']) ||
+		     $config['system']['maximumtableentries'] <
+		     $g['minimumtableentries_bogonsv6']) {
+			file_notice("Filter_Reload", sprintf(gettext(
+			    "To block bogon IPv6 networks the Firewall Maximum Table Entries value in System / Advanced / Firewall must be increased at least to %s"),
+			    $g['minimumtableentries_bogonsv6']));
+		} else {
+			$aliases .= "table <bogonsv6> persist file \"/etc/bogonsv6\"\n";
+		}
 	}
 
 	$vpns_list = filter_get_vpns_list();
@@ -2283,10 +2307,6 @@ function filter_nat_rules_generate() {
 			$srcaddr = trim($srcaddr);
 			$dstaddr = trim($dstaddr);
 
-			if (!$dstaddr) {
-				$dstaddr = $FilterIflist[$natif]['ip'];
-			}
-
 			$dstaddr_port = explode(" ", $dstaddr);
 			if (empty($dstaddr_port[0]) || strtolower(trim($dstaddr_port[0])) == "port") {
 				continue; // Skip port forward if no destination address found
@@ -2759,6 +2779,12 @@ function filter_generate_user_rule($rule) {
 			return "# {$error_text}";
 		}
 	}
+
+	/* Work around broken wizard rules. See https://redmine.pfsense.org/issues/7434 */
+	if ($rule['destination']['port'] == "137-139-137-139") {
+		$rule['destination']['port'] = "137-139";
+	}
+
 	if ($rule['destination']['port']
 	    && !is_port_or_range(str_replace("-", ":", $rule['destination']['port']))) {
 		$error_text = "";
@@ -4334,7 +4360,7 @@ function display_separator($separators, $nrules, $columns_in_table) {
 			if ($separator['row'][0] == "fr" . $nrules) {
 				$cellcolor = $separator['color'];
 				print('<tr class="ui-sortable-handle separator">' .
-					'<td class="' . $cellcolor . '" colspan="' . ($columns_in_table -1) . '">' . '<span class="' . $cellcolor . '">' . $separator['text'] . '</span></td>' .
+					'<td class="' . $cellcolor . '" colspan="' . ($columns_in_table -1) . '">' . '<span class="' . $cellcolor . '">' . htmlspecialchars($separator['text']) . '</span></td>' .
 					'<td  class="' . $cellcolor . '"><a href="#"><i class="fa fa-trash no-confirm sepdel" title="' . gettext("delete this separator") . '"></i></a></td>' .
 					'</tr>' . "\n");
 			}

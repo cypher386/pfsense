@@ -3,7 +3,7 @@
 # builder_common.sh
 #
 # part of pfSense (https://www.pfsense.org)
-# Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+# Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
 # All rights reserved.
 #
 # NanoBSD portions of the code
@@ -217,62 +217,6 @@ print_error_pfS() {
 	echo
 	kill $$
 	exit 1
-}
-
-prestage_on_ram_setup() {
-	# Do not use memory disks for release build
-	if [ -n "${_IS_RELEASE}" -o -n "${_IS_RC}" ]; then
-		return
-	fi
-
-	[ -d "${STAGE_CHROOT_DIR}" ] \
-		|| mkdir -p ${STAGE_CHROOT_DIR}
-	[ -d "${FINAL_CHROOT_DIR}" ] \
-		|| mkdir -p ${FINAL_CHROOT_DIR}
-
-	_AVAIL_MEM=$(($(sysctl -n hw.usermem) / 1024 / 1024))
-	if [ $_AVAIL_MEM -lt 2000 ]; then
-		echo ">>> Builder has less than 2GiB RAM skipping memory disks"
-		return
-	else
-		echo "######################################################################################"
-		echo
-		echo ">>> Builder has more than 2GiB RAM enabling memory disks"
-		echo ">>> WARNING: Remember to remove these memory disks by running $0 --disable-memorydisks"
-		echo
-		echo "######################################################################################"
-	fi
-
-	if df /dev/ufs/prestagebacking >/dev/null 2>&1; then
-		echo ">>> Detected preexisting memory disk enabled for ${STAGE_CHROOT_DIR}."
-	else
-		mdconfig -a -t swap -u 10001 -s ${MEMORYDISK_SIZE}
-		newfs -L prestagebacking -U /dev/md10001
-		mount /dev/ufs/prestagebacking ${STAGE_CHROOT_DIR}
-	fi
-
-	if df /dev/ufs/finalstagebacking >/dev/null 2>&1; then
-		echo ">>> Detected preexisting memory disk enabled for ${FINAL_CHROOT_DIR}."
-	else
-		mdconfig -a -t swap -u 10002 -s ${MEMORYDISK_SIZE}
-		newfs -L finalstagebacking -U /dev/md10002
-		mount /dev/ufs/finalstagebacking ${FINAL_CHROOT_DIR}
-	fi
-}
-
-prestage_on_ram_cleanup() {
-	if [ -c /dev/md10001 ]; then
-		if [ -d ${STAGE_CHROOT_DIR} ]; then
-			umount ${STAGE_CHROOT_DIR}
-		fi
-		mdconfig -d -u 10001
-	fi
-	if [ -c /dev/md10002 ]; then
-		if [ -d ${FINAL_CHROOT_DIR} ]; then
-			umount ${FINAL_CHROOT_DIR}
-		fi
-		mdconfig -d -u 10002
-	fi
 }
 
 # This routine will verify that the kernel has been
@@ -534,6 +478,18 @@ make_world() {
 	echo ">>> Builder is running the command: script -aq $LOGFILE make -C ${FREEBSD_SRC_DIR}/tools/tools/ath/athstats ${makeargs} install" | tee -a ${LOGFILE}
 	(script -aq $LOGFILE make -C ${FREEBSD_SRC_DIR}/tools/tools/ath/athstats ${makeargs} install || print_error_pfS;) | egrep '^>>>' | tee -a ${LOGFILE}
 	echo ">>> Building and installing crypto tools and athstats for ${TARGET} architecture... (Finished - $(LC_ALL=C date))" | tee -a ${LOGFILE}
+
+	if [ "${PRODUCT_NAME}" = "pfSense" -a -n "${GNID_REPO_BASE}" ]; then
+		echo ">>> Building gnid... " | tee -a ${LOGFILE}
+		(\
+			cd ${GNID_SRC_DIR} && \
+			make INCLUDE_DIR=${GNID_INCLUDE_DIR} \
+			LIBCRYPTO_DIR=${GNID_LIBCRYPTO_DIR} clean gnid \
+		) || print_error_pfS
+		install -o root -g wheel -m 0700 ${GNID_SRC_DIR}/gnid \
+			${STAGE_CHROOT_DIR}/usr/sbin \
+			|| print_error_pfS
+	fi
 
 	unset makeargs
 }
@@ -1214,7 +1170,7 @@ clone_to_staging_area() {
 
 	# Include a sample pkg stable conf to base
 	setup_pkg_repo \
-		${PKG_REPO_DEFAULT} \
+		$(eval echo \$PKG_REPO_DEFAULT_${TARGET_ARCH}) \
 		${STAGE_CHROOT_DIR}${PRODUCT_SHARE_DIR}/${PRODUCT_NAME}-repo.conf \
 		${TARGET} \
 		${TARGET_ARCH}
@@ -1269,13 +1225,14 @@ clone_to_staging_area() {
 	pkg_bootstrap ${STAGE_CHROOT_DIR}
 
 	# Make sure correct repo is available on tmp dir
-	mkdir -p ${STAGE_CHROOT_DIR}/tmp/pkg-repos
+	mkdir -p ${STAGE_CHROOT_DIR}/tmp/pkg/pkg-repos
 	setup_pkg_repo \
-		${PKG_REPO_DEFAULT} \
-		${STAGE_CHROOT_DIR}/tmp/pkg-repos/repo.conf \
+		$(eval echo \$PKG_REPO_BUILD_${TARGET_ARCH}) \
+		${STAGE_CHROOT_DIR}/tmp/pkg/pkg-repos/repo.conf \
 		${TARGET} \
 		${TARGET_ARCH} \
-		staging
+		staging \
+		${STAGE_CHROOT_DIR}/tmp/pkg/pkg.conf
 
 	echo "Done!"
 }
@@ -1379,7 +1336,7 @@ customize_stagearea_for_image() {
 	fi
 
 	# Remove temporary repo conf
-	rm -rf ${FINAL_CHROOT_DIR}/tmp/pkg-repos
+	rm -rf ${FINAL_CHROOT_DIR}/tmp/pkg
 }
 
 create_distribution_tarball() {
@@ -1619,6 +1576,7 @@ setup_pkg_repo() {
 	local _arch="${3}"
 	local _target_arch="${4}"
 	local _staging="${5}"
+	local _pkg_conf="${6}"
 
 	if [ -z "${_template}" -o ! -f "${_template}" ]; then
 		echo ">>> ERROR: It was not possible to find pkg conf template ${_template}"
@@ -1646,8 +1604,31 @@ setup_pkg_repo() {
 		-e "s,%%PKG_REPO_SERVER_DEVEL%%,${_pkg_repo_server_devel},g" \
 		-e "s,%%PKG_REPO_SERVER_RELEASE%%,${_pkg_repo_server_release},g" \
 		-e "s/%%PRODUCT_NAME%%/${PRODUCT_NAME}/g" \
+		-e "s/%%REPO_BRANCH_PREFIX%%/${REPO_BRANCH_PREFIX}/g" \
 		${_template} \
 		> ${_target}
+
+	if [ "${_target_arch}" = "amd64" ]; then
+		ALTABI_ARCH="x86:64"
+	elif [ "${_target_arch}" = "i386" ]; then
+		ALTABI_ARCH="x86:32"
+	elif [ "${_target_arch}" = "armv6" ]; then
+		ALTABI_ARCH="32:el:eabi:hardfp"
+	else
+		echo ">>> ERROR: Invalid arch"
+		print_error_pfS
+	fi
+
+	ABI=$(cat ${_template%%.conf}.abi 2>/dev/null \
+	    | sed -e "s/%%ARCH%%/${_target_arch}/g")
+	ALTABI=$(cat ${_template%%.conf}.altabi 2>/dev/null \
+	    | sed -e "s/%%ARCH%%/${ALTABI_ARCH}/g")
+
+	if [ -n "${_pkg_conf}" -a -n "${ABI}" -a -n "${ALTABI}" ]; then
+		mkdir -p $(dirname ${_pkg_conf})
+		echo "ABI=${ABI}" > ${_pkg_conf}
+		echo "ALTABI=${ALTABI}" >> ${_pkg_conf}
+	fi
 }
 
 # This routine ensures any ports / binaries that the builder
@@ -1666,7 +1647,7 @@ builder_setup() {
 
 		local _arch=$(uname -m)
 		setup_pkg_repo \
-			${PKG_REPO_DEFAULT} \
+			$(eval echo \$PKG_REPO_BUILD_${TARGET_ARCH}) \
 			${PKG_REPO_PATH} \
 			${_arch} \
 			${_arch} \
@@ -1726,6 +1707,30 @@ update_freebsd_sources() {
 		( cd ${FREEBSD_SRC_DIR} && git checkout ${GIT_FREEBSD_COSHA1} ) 2>&1 | grep -C3 -i -E 'error|fatal'
 	fi
 	echo "Done!"
+
+	if [ "${PRODUCT_NAME}" = "pfSense" -a -n "${GNID_REPO_BASE}" ]; then
+		echo ">>> Obtaining gnid sources..."
+
+		_CLONE=1
+		if [ -d "${GNID_SRC_DIR}/.git" ]; then
+			CUR_BRANCH=$(cd ${GNID_SRC_DIR} && git branch | grep '^\*' | cut -d' ' -f2)
+			if [ "${CUR_BRANCH}" = "${GNID_BRANCH}" ]; then
+				_CLONE=0
+				( cd ${GNID_SRC_DIR} && git clean -fd; git fetch origin; git reset --hard origin/${GNID_BRANCH} ) 2>&1 | grep -C3 -i -E 'error|fatal'
+			else
+				rm -rf ${GNID_SRC_DIR}
+			fi
+		fi
+
+		if [ ${_CLONE} -eq 1 ]; then
+			( git clone --branch ${GNID_BRANCH} ${GNID_REPO_BASE} ${GNID_SRC_DIR} ) 2>&1 | grep -C3 -i -E 'error|fatal'
+		fi
+
+		if [ ! -d "${GNID_SRC_DIR}/.git" ]; then
+			echo ">>> ERROR: It was not possible to clone gnid src repo"
+			print_error_pfS
+		fi
+	fi
 }
 
 pkg_chroot() {
@@ -1750,11 +1755,14 @@ pkg_chroot() {
 	cp -f /etc/resolv.conf ${_root}/etc/resolv.conf
 	touch ${BUILDER_LOGS}/install_pkg_install_ports.txt
 	local _params=""
-	if [ -f "${_root}/tmp/pkg-repos/repo.conf" ]; then
-		_params="--repo-conf-dir /tmp/pkg-repos "
+	if [ -f "${_root}/tmp/pkg/pkg-repos/repo.conf" ]; then
+		_params="--repo-conf-dir /tmp/pkg/pkg-repos "
+	fi
+	if [ -f "${_root}/tmp/pkg/pkg.conf" ]; then
+		_params="${_params} --config /tmp/pkg/pkg.conf "
 	fi
 	script -aq ${BUILDER_LOGS}/install_pkg_install_ports.txt \
-		pkg -c ${_root} ${_params}$@ >/dev/null 2>&1
+		chroot ${_root} pkg ${_params}$@ >/dev/null 2>&1
 	local result=$?
 	rm -f ${_root}/etc/resolv.conf
 	/sbin/umount -f ${_root}/dev
@@ -1791,7 +1799,7 @@ pkg_bootstrap() {
 	local _root=${1:-"${STAGE_CHROOT_DIR}"}
 
 	setup_pkg_repo \
-		${PKG_REPO_DEFAULT} \
+		$(eval echo \$PKG_REPO_BUILD_${TARGET_ARCH}) \
 		${_root}${PKG_REPO_PATH} \
 		${TARGET} \
 		${TARGET_ARCH} \
@@ -1837,12 +1845,22 @@ install_bsdinstaller() {
 	local _params=""
 
 	echo ">>> Installing BSDInstaller in chroot (${FINAL_CHROOT_DIR})... (starting)"
+	if [ -f "${STAGE_CHROOT_DIR}/tmp/pkg/pkg-repos/repo.conf" ]; then
+		mkdir -p ${FINAL_CHROOT_DIR}/tmp/pkg/pkg-repos
+		cp ${STAGE_CHROOT_DIR}/tmp/pkg/pkg.conf \
+			${FINAL_CHROOT_DIR}/tmp/pkg
+		cp ${STAGE_CHROOT_DIR}/tmp/pkg/pkg-repos/repo.conf \
+			${FINAL_CHROOT_DIR}/tmp/pkg/pkg-repos
+	fi
 	pkg_chroot ${FINAL_CHROOT_DIR} install -f bsdinstaller
 	sed -i '' -e "s,%%PRODUCT_NAME%%,${PRODUCT_NAME}," \
 		  -e "s,%%PRODUCT_VERSION%%,${PRODUCT_VERSION}," \
 		  -e "s,%%ARCH%%,${TARGET}," \
 		  ${FINAL_CHROOT_DIR}/usr/local/share/dfuibe_lua/conf/pfSense.lua \
 		  ${FINAL_CHROOT_DIR}/usr/local/share/dfuibe_lua/conf/pfSense_rescue.lua
+	if [ -f "${FINAL_CHROOT_DIR}/tmp/pkg/pkg-repos/repo.conf" ]; then
+		rm -rf ${FINAL_CHROOT_DIR}/tmp/pkg
+	fi
 	echo ">>> Installing BSDInstaller in chroot (${FINAL_CHROOT_DIR})... (finished)"
 }
 
@@ -1984,7 +2002,7 @@ pkg_repo_rsync() {
 		fi
 	fi
 
-	if [ -n "${DO_NOT_UPLOAD}" ]; then
+	if [ -z "${UPLOAD}" ]; then
 		return
 	fi
 
@@ -2283,6 +2301,7 @@ ATOMIC_PACKAGE_REPOSITORY=yes
 COMMIT_PACKAGES_ON_FAILURE=no
 KEEP_OLD_PACKAGES=yes
 KEEP_OLD_PACKAGES_COUNT=5
+BUILD_AS_NON_ROOT=no
 EOF
 
 	# Create specific items conf
@@ -2402,7 +2421,7 @@ poudriere_bulk() {
 
 	LOGFILE=${BUILDER_LOGS}/poudriere.log
 
-	if [ -z "${DO_NOT_UPLOAD}" -a -z "${PKG_RSYNC_HOSTNAME}" ]; then
+	if [ -n "${UPLOAD}" -a -z "${PKG_RSYNC_HOSTNAME}" ]; then
 		echo ">>> ERROR: PKG_RSYNC_HOSTNAME is not set"
 		print_error_pfS
 	fi
@@ -2425,7 +2444,10 @@ PKG_REPO_BRANCH_RELEASE=${PKG_REPO_BRANCH_RELEASE}
 PKG_REPO_SERVER_DEVEL=${PKG_REPO_SERVER_DEVEL}
 PKG_REPO_SERVER_RELEASE=${PKG_REPO_SERVER_RELEASE}
 POUDRIERE_PORTS_NAME=${POUDRIERE_PORTS_NAME}
+PFSENSE_DEFAULT_REPO=${PFSENSE_DEFAULT_REPO_amd64}
+PFSENSE_DEFAULT_REPO_i386=${PFSENSE_DEFAULT_REPO_i386}
 PRODUCT_NAME=${PRODUCT_NAME}
+REPO_BRANCH_PREFIX=${REPO_BRANCH_PREFIX}
 EOF
 
 	# Change version of pfSense meta ports for snapshots
@@ -2440,11 +2462,17 @@ EOF
 
 	# Copy over pkg repo templates to pfSense-repo
 	mkdir -p /usr/local/poudriere/ports/${POUDRIERE_PORTS_NAME}/sysutils/${PRODUCT_NAME}-repo/files
-	cp -f ${PKG_REPO_BASE}/* \
-		/usr/local/poudriere/ports/${POUDRIERE_PORTS_NAME}/sysutils/${PRODUCT_NAME}-repo/files
 
 	for jail_arch in ${_archs}; do
 		jail_name=$(poudriere_jail_name ${jail_arch})
+
+		if [ "${jail_arch}" = "i386.i386" ]; then
+			cp -f ${PKG_REPO_BASE}_i386/* \
+				/usr/local/poudriere/ports/${POUDRIERE_PORTS_NAME}/sysutils/${PRODUCT_NAME}-repo/files
+		else
+			cp -f ${PKG_REPO_BASE}/* \
+				/usr/local/poudriere/ports/${POUDRIERE_PORTS_NAME}/sysutils/${PRODUCT_NAME}-repo/files
+		fi
 
 		if ! poudriere jail -i -j "${jail_name}" >/dev/null 2>&1; then
 			echo ">>> Poudriere jail ${jail_name} not found, skipping..." | tee -a ${LOGFILE}

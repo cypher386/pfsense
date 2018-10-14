@@ -3,7 +3,7 @@
  * diag_gmirror.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -247,7 +247,7 @@ else:
 <?php
 	if (count($mirror_status) > 0): ?>
 
-			<table class="table table-striped stable-hover table-condensed">
+			<table class="table table-striped table-hover table-condensed">
 				<thead>
 					<tr>
 						<th><?=gettext("Name"); ?></th>
@@ -328,7 +328,7 @@ else:
 		<div class="panel-body table-responsive">
 <?php
 	if (count($unused_consumers) > 0): ?>
-			<table class="table table-striped stable-hover table-condensed">
+			<table class="table table-striped table-hover table-condensed">
 				<thead>
 					<tr>
 						<th><?=gettext("Name"); ?></th>

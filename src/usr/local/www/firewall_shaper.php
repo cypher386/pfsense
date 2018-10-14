@@ -3,7 +3,7 @@
  * firewall_shaper.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -74,7 +74,7 @@ $pgtitle = array(gettext("Firewall"), gettext("Traffic Shaper"), gettext("By Int
 $pglinks = array("", "@self", "@self");
 $shortcut_section = "trafficshaper";
 
-$shaperIFlist = get_configured_interface_with_descr();
+$shaperIFlist = get_configured_interface_with_descr(true);
 read_altq_config();
 /*
  * The whole logic in these code maybe can be specified.

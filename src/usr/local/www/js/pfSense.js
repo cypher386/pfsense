@@ -2,7 +2,7 @@
  * pfSense.js
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -157,13 +157,20 @@ $(function() {
 			if (input.val() == "")
 				return;
 
-			// Eat all of the options with a value greater than max. We don't want them to be available
-			while (select.options[0].value > max)
-				select.remove(0);
+			var attr = $(select).attr('disabled');
 
-			if (select.options.length < max) {
-				for (var i=select.options.length; i<=max; i++)
-					select.options.add(new Option(i, i), 0);
+			// Don't do anything if the mask selector is disabled
+			if (typeof attr === typeof undefined || attr === false) {
+				// Eat all of the options with a value greater than max. We don't want them to be available
+				while (select.options[0].value > max)
+					select.remove(0);
+
+				if (select.options.length < max) {
+					for (var i=select.options.length; i<=max; i++)
+						select.options.add(new Option(i, i), 0);
+					// Make sure index 0 is selected otherwise it will stay in "32" for V6
+					select.options.selectedIndex = "0";
+				}
 			}
 		});
 

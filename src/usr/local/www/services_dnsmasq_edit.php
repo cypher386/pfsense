@@ -3,7 +3,7 @@
  * services_dnsmasq_edit.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2003-2004 Bob Zoller <bob@kludgebox.com>
  * All rights reserved.
  *
@@ -312,7 +312,7 @@ if ($pconfig['aliases']['item']) {
 			'Delete',
 			null,
 			'fa-trash'
-		))->addClass('btn-warning');
+		))->addClass('btn-warning')->addClass('nowarn');
 
 		$section->add($group);
 		$counter++;

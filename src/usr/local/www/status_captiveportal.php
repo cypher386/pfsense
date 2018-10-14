@@ -3,7 +3,7 @@
  * status_captiveportal.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -97,11 +97,11 @@ function print_details($cpent) {
 		$last_act = $last_act ? $last_act : $cpent[0];
 
 		$idle_time = time() - $last_act;
-		printf(gettext("Idle time: %s") . "<br>", convert_seconds_to_dhms($idle_time));
+		printf(gettext("Idle time: %s") . "<br>", convert_seconds_to_dhms((int)$idle_time));
 
 		if (!empty($cpent[8])) {
 			$idle_time_left = $last_act + $cpent[8] - time();
-			printf(gettext("Idle time left: %s") . "<br>", convert_seconds_to_dhms($idle_time_left));
+			printf(gettext("Idle time left: %s") . "<br>", convert_seconds_to_dhms((int)$idle_time_left));
 		}
 	}
 

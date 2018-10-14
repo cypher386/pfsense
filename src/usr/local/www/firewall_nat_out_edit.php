@@ -3,7 +3,7 @@
  * firewall_nat_out_edit.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -686,28 +686,7 @@ $section->addInput(new Form_Input(
 
 $form->add($section);
 
-$has_created_time = (isset($a_out[$id]['created']) && is_array($a_out[$id]['created']));
-$has_updated_time = (isset($a_out[$id]['updated']) && is_array($a_out[$id]['updated']));
-
-if ($has_created_time || $has_updated_time) {
-	$section = new Form_Section('Rule Information');
-
-	if ($has_created_time) {
-		$section->addInput(new Form_StaticText(
-			'Created',
-			date(gettext("n/j/y H:i:s"), $a_out[$id]['created']['time']) . gettext(" by ") . $a_out[$id]['created']['username']
-		));
-	}
-
-	if ($has_updated_time) {
-		$section->addInput(new Form_StaticText(
-			'Updated',
-			date(gettext("n/j/y H:i:s"), $a_out[$id]['updated']['time']) . gettext(" by ") . $a_out[$id]['updated']['username']
-		));
-	}
-
-	$form->add($section);
-}
+gen_created_updated_fields($form, $a_out[$id]['created'], $a_out[$id]['updated']);
 
 print($form);
 

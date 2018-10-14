@@ -6,7 +6,7 @@
  * Copyright (c) Scott Dale
  * Copyright (c) 2004-2005 T. Lechat <dev@lechat.org>
  * Copyright (c) Jonathan Watt <jwatt@jwatt.org>
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally part of m0n0wall (http://m0n0.ch/wall)
@@ -67,14 +67,14 @@ require_once("/usr/local/www/widgets/include/installed_packages.inc");
 require_once("pkg-utils.inc");
 
 if ($_REQUEST && $_REQUEST['ajax']) {
-	$package_list = get_pkg_info();
+	$package_list = get_pkg_info('all', true, true);
 	$installed_packages = array_filter($package_list, function($v) {
 		return (isset($v['installed']) || isset($v['broken']));
 	});
 
 	if (empty($installed_packages)) {
-		print_info_box(gettext("No packages installed.") . " " . gettext('Packages can be installed <a href="pkg_mgr.php" class="alert-link">here</a>.'), 'warning', false);
-		exit;
+		print_info_box(gettext("No packages installed."), 'warning', false);
+		return;
 	}
 
 	print("<thead>\n");

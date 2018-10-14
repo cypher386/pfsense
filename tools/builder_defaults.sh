@@ -3,7 +3,7 @@
 # builder_defaults.sh
 #
 # part of pfSense (https://www.pfsense.org)
-# Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+# Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -107,6 +107,7 @@ fi
 # Product details
 export PRODUCT_NAME=${PRODUCT_NAME:-"nonSense"}
 export PRODUCT_NAME_SUFFIX=${PRODUCT_NAME_SUFFIX:-"-CE"}
+export REPO_BRANCH_PREFIX=${REPO_BRANCH_PREFIX:-""}
 export PRODUCT_URL=${PRODUCT_URL:-""}
 export PRODUCT_SRC=${PRODUCT_SRC:-"${BUILDER_ROOT}/src"}
 export PRODUCT_EMAIL=${PRODUCT_EMAIL:-"coreteam@pfsense.org"}
@@ -186,6 +187,13 @@ else
 	export MODULES_OVERRIDE=${MODULES_OVERRIDE:-"i2c ipmi ndis ipfw ipdivert dummynet fdescfs opensolaris zfs glxsb if_stf coretemp amdtemp aesni sfxge hwpmc vmm nmdm ixgbe"}
 fi
 
+# gnid
+export GNID_REPO_BASE=${GNID_REPO_BASE:-"${GIT_REPO_BASE}/gnid.git"}
+export GNID_SRC_DIR=${GNID_SRC_DIR:-"${SCRATCHDIR}/gnid"}
+export GNID_BRANCH=${GNID_BRANCH:-"master"}
+export GNID_INCLUDE_DIR=${GNID_INCLUDE_DIR:-"${MAKEOBJDIRPREFIX}/${FREEBSD_SRC_DIR}/tmp/usr/include"}
+export GNID_LIBCRYPTO_DIR=${GNID_LIBCRYPTO_DIR:-"${MAKEOBJDIRPREFIX}/${FREEBSD_SRC_DIR}/secure/lib/libcrypto"}
+
 # Area that the final image will appear in
 export IMAGES_FINAL_DIR=${IMAGES_FINAL_DIR:-"${SCRATCHDIR}/${PRODUCT_NAME}/"}
 
@@ -200,9 +208,6 @@ export STAGE_CHROOT_DIR=${STAGE_CHROOT_DIR:-"${SCRATCHDIR}/stage-dir"}
 # Directory that will clone to in order to create
 # iso staging area.
 export FINAL_CHROOT_DIR=${FINAL_CHROOT_DIR:-"${SCRATCHDIR}/final-dir"}
-
-# 400M is not enough for amd64
-export MEMORYDISK_SIZE=${MEMORYDISK_SIZE:-"1024M"}
 
 # OVF/vmdk parms
 # Name of ovf file included inside OVA archive
@@ -264,16 +269,18 @@ if [ -z "${BUILTDATESTRING}" ]; then
 fi
 echo "$BUILTDATESTRING" > $BUILTDATESTRINGFILE
 
-STAGING_HOSTNAME=${STAGING_HOSTNAME:-"release-staging.netgate.com"}
-
 # Poudriere
 export ZFS_TANK=${ZFS_TANK:-"zroot"}
 export ZFS_ROOT=${ZFS_ROOT:-"/poudriere"}
 export POUDRIERE_PORTS_NAME=${POUDRIERE_PORTS_NAME:-"${PRODUCT_NAME}_${POUDRIERE_BRANCH}"}
 
 export POUDRIERE_BULK=${POUDRIERE_BULK:-"${BUILDER_TOOLS}/conf/pfPorts/poudriere_bulk"}
-export POUDRIERE_PORTS_GIT_URL=${POUDRIERE_PORTS_GIT_URL:-"${GIT_REPO_BASE}/freebsd-ports.git"}
-export POUDRIERE_PORTS_GIT_BRANCH=${POUDRIERE_PORTS_GIT_BRANCH:-"RELENG_2_3"}
+if [ -z "${REPO_BRANCH_PREFIX}" ]; then
+	export POUDRIERE_PORTS_GIT_URL=${POUDRIERE_PORTS_GIT_URL:-"${GIT_REPO_BASE}/freebsd-ports.git"}
+else
+	export POUDRIERE_PORTS_GIT_URL=${POUDRIERE_PORTS_GIT_URL:-"${GIT_REPO_BASE}/${REPO_BRANCH_PREFIX}ports.git"}
+fi
+export POUDRIERE_PORTS_GIT_BRANCH=${POUDRIERE_PORTS_GIT_BRANCH:-"${REPO_BRANCH_PREFIX}RELENG_2_3"}
 
 unset _IS_RELEASE
 unset _IS_RC
@@ -301,20 +308,22 @@ case "${PRODUCT_VERSION##*-}" in
 		exit 1
 esac
 
+STAGING_HOSTNAME=${STAGING_HOSTNAME:-"release-staging.nyi.netgate.com"}
+
 # Host to rsync pkg repos from poudriere
-export PKG_RSYNC_HOSTNAME=${PKG_RSYNC_HOSTNAME:-${STAGING_HOSTNAME}}
+export PKG_RSYNC_HOSTNAME=${PKG_RSYNC_HOSTNAME:-"nfs1.nyi.netgate.com"}
 export PKG_RSYNC_USERNAME=${PKG_RSYNC_USERNAME:-"wwwsync"}
 export PKG_RSYNC_SSH_PORT=${PKG_RSYNC_SSH_PORT:-"22"}
-export PKG_RSYNC_DESTDIR=${PKG_RSYNC_DESTDIR:-"/staging/ce/packages"}
-export PKG_RSYNC_LOGS=${PKG_RSYNC_LOGS:-"/staging/ce/packages/logs/${POUDRIERE_BRANCH}/${TARGET}"}
+export PKG_RSYNC_DESTDIR=${PKG_RSYNC_DESTDIR:-"/storage/files/release-staging/ce/packages"}
+export PKG_RSYNC_LOGS=${PKG_RSYNC_LOGS:-"/storage/files/release-staging/ce/packages/logs/${POUDRIERE_BRANCH}/${TARGET}"}
 
 # Final packages server
-if [ -n "${_IS_RELEASE}" ]; then
-	export PKG_FINAL_RSYNC_HOSTNAME=${PKG_FINAL_RSYNC_HOSTNAME:-"files01.nyi.netgate.com files02.nyi.netgate.com files03.nyi.netgate.com"}
-	export PKG_FINAL_RSYNC_DESTDIR=${PKG_FINAL_RSYNC_DESTDIR:-"/usr/local/www/pkg"}
+if [ -n "${_IS_RELEASE}" -o -n "${_IS_RC}" ]; then
+	export PKG_FINAL_RSYNC_HOSTNAME=${PKG_FINAL_RSYNC_HOSTNAME:-"nfs1.nyi.netgate.com"}
+	export PKG_FINAL_RSYNC_DESTDIR=${PKG_FINAL_RSYNC_DESTDIR:-"/storage/files/pkg"}
 else
-	export PKG_FINAL_RSYNC_HOSTNAME=${PKG_FINAL_RSYNC_HOSTNAME:-"beta.pfsense.org"}
-	export PKG_FINAL_RSYNC_DESTDIR=${PKG_FINAL_RSYNC_DESTDIR:-"/usr/local/www/beta/packages"}
+	export PKG_FINAL_RSYNC_HOSTNAME=${PKG_FINAL_RSYNC_HOSTNAME:-"nfs1.nyi.netgate.com"}
+	export PKG_FINAL_RSYNC_DESTDIR=${PKG_FINAL_RSYNC_DESTDIR:-"/storage/files/beta/packages"}
 fi
 export PKG_FINAL_RSYNC_USERNAME=${PKG_FINAL_RSYNC_USERNAME:-"wwwsync"}
 export PKG_FINAL_RSYNC_SSH_PORT=${PKG_FINAL_RSYNC_SSH_PORT:-"22"}
@@ -328,15 +337,15 @@ export PKG_REPO_SERVER_STAGING=${PKG_REPO_SERVER_STAGING:-"pkg+http://${STAGING_
 
 if [ -n "${_IS_RELEASE}" -o -n "${_IS_RC}" ]; then
 	export PKG_REPO_BRANCH_RELEASE=${PKG_REPO_BRANCH_RELEASE:-${POUDRIERE_BRANCH}}
-	export PKG_REPO_BRANCH_DEVEL=${PKG_REPO_BRANCH_DEVEL:-"v2_3"}
+	export PKG_REPO_BRANCH_DEVEL=${PKG_REPO_BRANCH_DEVEL:-"${REPO_BRANCH_PREFIX}v2_3"}
 	export PKG_REPO_BRANCH_STAGING=${PKG_REPO_BRANCH_STAGING:-${PKG_REPO_BRANCH_RELEASE}}
 else
-	export PKG_REPO_BRANCH_RELEASE=${PKG_REPO_BRANCH_RELEASE:-"v2_3_3"}
+	export PKG_REPO_BRANCH_RELEASE=${PKG_REPO_BRANCH_RELEASE:-"${REPO_BRANCH_PREFIX}v2_3_5"}
 	export PKG_REPO_BRANCH_DEVEL=${PKG_REPO_BRANCH_DEVEL:-${POUDRIERE_BRANCH}}
 	export PKG_REPO_BRANCH_STAGING=${PKG_REPO_BRANCH_STAGING:-${PKG_REPO_BRANCH_DEVEL}}
 fi
 
-if [ -n "${_IS_RELEASE}" ]; then
+if [ -n "${_IS_RELEASE}" -o -n "${_IS_RC}" ]; then
 	export PKG_REPO_SIGN_KEY=${PKG_REPO_SIGN_KEY:-"release${PRODUCT_NAME_SUFFIX}"}
 else
 	export PKG_REPO_SIGN_KEY=${PKG_REPO_SIGN_KEY:-"beta${PRODUCT_NAME_SUFFIX}"}
@@ -353,8 +362,17 @@ export CORE_PKG_ALL_PATH="${CORE_PKG_PATH}/All"
 export CORE_PKG_TMP=${CORE_PKG_TMP:-"${SCRATCHDIR}/core_pkg_tmp"}
 
 export PKG_REPO_BASE=${PKG_REPO_BASE:-"${BUILDER_TOOLS}/templates/pkg_repos"}
-export PKG_REPO_DEFAULT=${PKG_REPO_DEFAULT:-"${PKG_REPO_BASE}/${PRODUCT_NAME}-repo.conf"}
 export PKG_REPO_PATH=${PKG_REPO_PATH:-"/usr/local/etc/pkg/repos/${PRODUCT_NAME}.conf"}
+
+export PFSENSE_DEFAULT_REPO_amd64="${PRODUCT_NAME}-repo-legacy-devel-23"
+export PKG_REPO_DEFAULT_amd64=${PKG_REPO_DEFAULT_amd64:-"${PKG_REPO_BASE}/${PFSENSE_DEFAULT_REPO_amd64}.conf"}
+export PFSENSE_BUILD_REPO_amd64="${PFSENSE_DEFAULT_REPO_amd64}"
+export PKG_REPO_BUILD_amd64=${PKG_REPO_BUILD_amd64:-"${PKG_REPO_BASE}/${PFSENSE_BUILD_REPO_amd64}.conf"}
+
+export PFSENSE_DEFAULT_REPO_i386="${PRODUCT_NAME}-repo-devel"
+export PKG_REPO_DEFAULT_i386=${PKG_REPO_DEFAULT_i386:-"${PKG_REPO_BASE}_i386/${PFSENSE_DEFAULT_REPO_i386}.conf"}
+export PFSENSE_BUILD_REPO_i386="${PFSENSE_DEFAULT_REPO_i386}"
+export PKG_REPO_BUILD_i386=${PKG_REPO_BUILD_i386:-"${PKG_REPO_BASE}_i386/${PFSENSE_BUILD_REPO_i386}.conf"}
 
 export PRODUCT_SHARE_DIR=${PRODUCT_SHARE_DIR:-"/usr/local/share/${PRODUCT_NAME}"}
 
@@ -386,8 +404,15 @@ export NANOBSD_IMG_TEMPLATE=${NANOBSD_IMG_TEMPLATE:-"${PRODUCT_NAME}${PRODUCT_NA
 export NANOBSD_UPGRADE_TEMPLATE=${NANOBSD_UPGRADE_TEMPLATE:-"${PRODUCT_NAME}${PRODUCT_NAME_SUFFIX}-${PRODUCT_VERSION}${PRODUCT_REVISION:+-p}${PRODUCT_REVISION}-%%SIZE%%-${TARGET}-%%TYPE%%-upgrade${TIMESTAMP_SUFFIX}.img"}
 
 # Rsync data to send snapshots
-export RSYNCUSER=${RSYNCUSER:-"snapshots"}
-export RSYNCPATH=${RSYNCPATH:-"/usr/local/www/snapshots/${TARGET}/${PRODUCT_NAME}_${GIT_REPO_BRANCH_OR_TAG}"}
+if [ -n "${_IS_RELEASE}" -o -n "${SKIP_FINAL_RSYNC}" ]; then
+	export RSYNCIP=${RSYNCIP:-"nfs1.nyi.netgate.com"}
+	export RSYNCUSER=${RSYNCUSER:-"wwwsync"}
+	export RSYNCPATH=${RSYNCPATH:-"/storage/files/release-staging/ce/images"}
+else
+	export RSYNCIP=${RSYNCIP:-"nfs1.nyi.netgate.com"}
+	export RSYNCUSER=${RSYNCUSER:-"wwwsync"}
+	export RSYNCPATH=${RSYNCPATH:-"/storage/files/snapshots/${TARGET}/${PRODUCT_NAME}_${GIT_REPO_BRANCH_OR_TAG}"}
+fi
 
 # staging area used on snapshots build
 STAGINGAREA=${STAGINGAREA:-"${SCRATCHDIR}/staging"}

@@ -3,7 +3,7 @@
  * functions.inc.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2013-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2013-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -65,8 +65,6 @@ function get_stats() {
 	$stats['states'] = get_pfstate();
 	$stats['temp'] = get_temp();
 	$stats['datetime'] = update_date_time();
-	$stats['interfacestatistics'] = get_interfacestats();
-	$stats['interfacestatus'] = get_interfacestatus();
 	$stats['cpufreq'] = get_cpufreq();
 	$stats['load_average'] = get_load_average();
 	$stats['mbuf'] = get_mbuf();
@@ -114,29 +112,13 @@ function get_uptime() {
 	return $uptimestr;
 }
 
-/* Calculates non-idle CPU time and returns as a percentage */
+// Returns the current total ticks and user ticks. The dashboard widget calculates the load from that
 function cpu_usage() {
-	$duration = 1;
+
 	$diff = array('user', 'nice', 'sys', 'intr', 'idle');
 	$cpuTicks = array_combine($diff, explode(" ", get_single_sysctl('kern.cp_time')));
-	sleep($duration);
-	$cpuTicks2 = array_combine($diff, explode(" ", get_single_sysctl('kern.cp_time')));
 
-	$totalStart = array_sum($cpuTicks);
-	$totalEnd = array_sum($cpuTicks2);
-
-	// Something wrapped ?!?!
-	if ($totalEnd <= $totalStart) {
-		return 0;
-	}
-
-	// Calculate total cycles used
-	$totalUsed = ($totalEnd - $totalStart) - ($cpuTicks2['idle'] - $cpuTicks['idle']);
-
-	// Calculate the percentage used
-	$cpuUsage = floor(100 * ($totalUsed / ($totalEnd - $totalStart)));
-
-	return $cpuUsage;
+	return array_sum($cpuTicks) . "|" . $cpuTicks['idle'];
 }
 
 function get_pfstate($percent=false) {
@@ -296,81 +278,6 @@ function get_load_average() {
 	$load_average = "";
 	exec("/usr/bin/uptime | /usr/bin/sed 's/^.*: //'", $load_average);
 	return $load_average[0];
-}
-
-function get_interfacestats() {
-	global $config;
-	//build interface list for widget use
-	$ifdescrs = get_configured_interface_list();
-
-	$array_in_packets = array();
-	$array_out_packets = array();
-	$array_in_bytes = array();
-	$array_out_bytes = array();
-	$array_in_errors = array();
-	$array_out_errors = array();
-	$array_collisions = array();
-	$array_interrupt = array();
-	$new_data = "";
-
-	//build data arrays
-	foreach ($ifdescrs as $ifdescr => $ifname) {
-		$ifinfo = get_interface_info($ifdescr);
-		$new_data .= "{$ifinfo['inpkts']},";
-		$new_data .= "{$ifinfo['outpkts']},";
-		$new_data .= format_bytes($ifinfo['inbytes']) . ",";
-		$new_data .= format_bytes($ifinfo['outbytes']) . ",";
-		if (isset($ifinfo['inerrs'])) {
-			$new_data .= "{$ifinfo['inerrs']},";
-			$new_data .= "{$ifinfo['outerrs']},";
-		} else {
-			$new_data .= "0,";
-			$new_data .= "0,";
-		}
-		if (isset($ifinfo['collisions'])) {
-			$new_data .= htmlspecialchars($ifinfo['collisions']) . ",";
-		} else {
-			$new_data .= "0,";
-		}
-	}//end for
-
-	return $new_data;
-}
-
-function get_interfacestatus() {
-	$data = "";
-	global $config;
-
-	//build interface list for widget use
-	$ifdescrs = get_configured_interface_with_descr();
-
-	foreach ($ifdescrs as $ifdescr => $ifname) {
-		$ifinfo = get_interface_info($ifdescr);
-		$data .= $ifname . "^";
-		if ($ifinfo['status'] == "up" || $ifinfo['status'] == "associated") {
-			$data .= "up";
-		} else if ($ifinfo['status'] == "no carrier") {
-			$data .= "down";
-		} else if ($ifinfo['status'] == "down") {
-			$data .= "block";
-		}
-		$data .= "^";
-		if ($ifinfo['ipaddr']) {
-			$data .= "<strong>" . htmlspecialchars($ifinfo['ipaddr']) . "</strong>";
-		}
-		$data .= "^";
-		if ($ifinfo['ipaddrv6']) {
-			$data .= "<strong>" . htmlspecialchars($ifinfo['ipaddrv6']) . "</strong>";
-		}
-		$data .= "^";
-		if ($ifinfo['status'] != "down") {
-			$data .= htmlspecialchars($ifinfo['media']);
-		}
-
-		$data .= "~";
-
-	}
-	return $data;
 }
 
 ?>

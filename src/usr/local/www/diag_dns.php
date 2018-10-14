@@ -3,7 +3,7 @@
  * diag_dns.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -116,12 +116,13 @@ function resolve_host_addresses($host) {
 	return $resolved;
 }
 
-if (isset($_POST['create_alias']) && (is_hostname($host) || is_ipaddr($host))) {
+if (isAllowedPage('firewall_aliases_edit.php') && isset($_POST['create_alias']) && (is_hostname($host) || is_ipaddr($host))) {
 	$resolved = gethostbyname($host);
 	$type = "hostname";
 	if ($resolved) {
 		$resolved = resolve_host_addresses($host);
 		$isfirst = true;
+		$addresses = "";
 		foreach ($resolved as $re) {
 			if ($re['data'] != "") {
 				if (!$isfirst) {
@@ -139,18 +140,24 @@ if (isset($_POST['create_alias']) && (is_hostname($host) || is_ipaddr($host))) {
 				$isfirst = false;
 			}
 		}
-		$newalias = array();
-		$newalias['name'] = $aliasname;
-		$newalias['type'] = "network";
-		$newalias['address'] = $addresses;
-		$newalias['descr'] = gettext("Created from Diagnostics-> DNS Lookup");
-		if ($alias_exists) {
-			$a_aliases[$id] = $newalias;
+		if ($addresses == "") {
+			$couldnotcreatealias = true;
 		} else {
-			$a_aliases[] = $newalias;
+			$newalias = array();
+			$newalias['name'] = $aliasname;
+			$newalias['type'] = "network";
+			$newalias['address'] = $addresses;
+			$newalias['descr'] = gettext("Created from Diagnostics-> DNS Lookup");
+			if ($alias_exists) {
+				$a_aliases[$id] = $newalias;
+			} else {
+				$a_aliases[] = $newalias;
+			}
+			write_config(gettext("Created an alias from Diagnostics - DNS Lookup page."));
+			$createdalias = true;
 		}
-		write_config();
-		$createdalias = true;
+	} else {
+		$couldnotcreatealias = true;
 	}
 }
 
@@ -244,6 +251,16 @@ if ($createdalias) {
 	} else {
 		print_info_box(gettext("Alias was created successfully."), 'success');
 	}
+
+	$alias_exists = true;
+}
+
+if ($couldnotcreatealias) {
+	if ($alias_exists) {
+		print_info_box(sprintf(gettext("Could not update alias for %s"), $host), 'warning', false);
+	} else {
+		print_info_box(sprintf(gettext("Could not create alias for %s"), $host), 'warning', false);
+	}
 }
 
 $form = new Form(false);
@@ -266,7 +283,7 @@ $form->addGlobal(new Form_Button(
         'fa-search'
 ))->addClass('btn-primary');
 
-if (!empty($resolved)) {
+if (!empty($resolved) && isAllowedPage('firewall_aliases_edit.php')) {
 	if ($alias_exists) {
 		$button_text = gettext("Update alias");
 	} else {
@@ -348,4 +365,23 @@ if (!$input_errors && $type) {
 </div>
 <?php
 }
+if (!$input_errors):
+?>
+<script type="text/javascript">
+//<![CDATA[
+events.push(function() {
+	var original_host = <?=json_encode($host);?>;
+
+	$('input[name="host"]').on('input', function() {
+		if ($('#host').val() == original_host) {
+			disableInput('create_alias', false);
+		} else {
+			disableInput('create_alias', true);
+		}
+	});
+});
+//]]>
+</script>
+<?php
+endif;
 include("foot.inc");

@@ -3,7 +3,7 @@
  * picture.widget.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -83,6 +83,14 @@ if ($_POST) {
 			log_error("Warning, could not read file " . $_FILES['pictfile']['tmp_name']);
 			die("Could not read temporary file");
 		} else {
+			// Make sure they upload an image and not some other file
+			$img_info = getimagesize($_FILES['pictfile']['tmp_name']);
+			if($img_info === FALSE){
+				die("Unable to determine image type of uploaded file");
+			}
+			if(($img_info[2] !== IMAGETYPE_GIF) && ($img_info[2] !== IMAGETYPE_JPEG) && ($img_info[2] !== IMAGETYPE_PNG)){
+				die("Not a gif/jpg/png");
+			}
 			$picname = basename($_FILES['uploadedfile']['name']);
 			$user_settings['widgets']['picturewidget'] = base64_encode($data);
 			$user_settings['widgets']['picturewidget_filename'] = $_FILES['pictfile']['name'];
@@ -94,12 +102,14 @@ if ($_POST) {
 }
 
 ?>
+<?php if($user_settings['widgets']['picturewidget_filename'] != null) {?>
 <a href="/widgets/widgets/picture.widget.php?getpic=true" target="_blank">
 	<img style="width:100%; height:100%" src="/widgets/widgets/picture.widget.php?getpic=true" alt="picture" />
 </a>
-
+<?php } ?>
 <!-- close the body we're wrapped in and add a configuration-panel -->
-</div><div id="widget-<?=$widgetname?>_panel-footer" class="panel-footer collapse">
+</div><div id="widget-<?=$widgetname?>_panel-footer"
+	<?php echo "class= " . "'" . "panel-footer". ($user_settings['widgets']['picturewidget_filename'] != null ? " collapse": ""). "'";  ?>>
 
 <form action="/widgets/widgets/picture.widget.php" method="post" enctype="multipart/form-data" class="form-inline">
 	<label for="pictfile"><?=gettext('New picture:')?> </label>

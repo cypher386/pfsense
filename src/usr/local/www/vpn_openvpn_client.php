@@ -3,7 +3,7 @@
  * vpn_openvpn_client.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2008 Shrew Soft Inc.
  * All rights reserved.
  *
@@ -166,6 +166,7 @@ if ($_GET['act'] == "edit") {
 		if ($pconfig['mode'] != "p2p_shared_key") {
 			$pconfig['caref'] = $a_client[$id]['caref'];
 			$pconfig['certref'] = $a_client[$id]['certref'];
+			$pconfig['crlref'] = $a_client[$id]['crlref'];
 			if ($a_client[$id]['tls']) {
 				$pconfig['tlsauth_enable'] = "yes";
 				$pconfig['tls'] = base64_decode($a_client[$id]['tls']);
@@ -398,6 +399,7 @@ if ($_POST) {
 		if ($tls_mode) {
 			$client['caref'] = $pconfig['caref'];
 			$client['certref'] = $pconfig['certref'];
+			$client['crlref'] = $pconfig['crlref'];
 			if ($pconfig['tlsauth_enable']) {
 				if ($pconfig['autotls_enable']) {
 					$pconfig['tls'] = openvpn_create_key();
@@ -964,17 +966,17 @@ events.push(function() {
 	});
 
 	 // Mode
-	$('#mode').click(function () {
+	$('#mode').change(function () {
 		mode_change();
 	});
 
 	 // Use proxy
-	$('#proxy_authtype').click(function () {
+	$('#proxy_authtype').change(function () {
 		useproxy_changed();
 	});
 
 	 // Tun/tap
-	$('#dev_mode').click(function () {
+	$('#dev_mode').change(function () {
 		dev_mode_change();
 	});
 

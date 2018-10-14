@@ -3,7 +3,7 @@
  * pkg_mgr_installed.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -71,35 +71,26 @@ if (is_subsystem_dirty('packagelock')) {
 	exit;
 }
 
-// We are being called only to get the pacakge data, not to display anything
+// We are being called only to get the package data, not to display anything
 if (($_REQUEST) && ($_REQUEST['ajax'])) {
 	print(get_pkg_table());
 	exit;
 }
 
 function get_pkg_table() {
-	$installed_packages = array();
-	$package_list = get_pkg_info();
+	$installed_packages = get_pkg_info('all', false, true);
 
-	if (!$package_list) {
+	if (is_array($input_errors)) {
 		print("error");
 		exit;
 	}
-
-	foreach ($package_list as $pkg) {
-		if (!isset($pkg['installed']) && !isset($pkg['broken'])) {
-			continue;
-		}
-		$installed_packages[] = $pkg;
-	}
-
-	$pkgtbl = "";
 
 	if (empty($installed_packages)) {
 		print ("nopkg");
 		exit;
 	}
 
+	$pkgtbl = "";
 	$pkgtbl .='		<div class="table-responsive">';
 	$pkgtbl .='		<table class="table table-striped table-hover table-condensed">';
 	$pkgtbl .='			<thead>';
@@ -130,6 +121,11 @@ function get_pkg_table() {
 			$txtcolor = "text-danger";
 			$missing = true;
 			$status = gettext('Package is configured, but not installed!');
+		} else if (isset($pkg['obsolete'])) {
+			// package is configured, but does not exist in the system
+			$txtcolor = "text-danger";
+			$missing = true;
+			$status = gettext('Package is installed, but is not available on remote repository!');
 		} else if (isset($pkg['installed_version']) && isset($pkg['version'])) {
 			$version_compare = pkg_version_compare($pkg['installed_version'], $pkg['version']);
 
@@ -199,7 +195,7 @@ function get_pkg_table() {
 		if ($upgradeavail) {
 			$pkgtbl .='						<a title="' . sprintf(gettext("Update package %s"), $pkg['name']) .
 			    '" href="pkg_mgr_install.php?mode=reinstallpkg&amp;pkg=' . $pkg['name'] . $vergetstr . '" class="fa fa-refresh"></a>';
-		} else {
+		} else if (!isset($pkg['obsolete'])) {
 			$pkgtbl .='						<a title="' . sprintf(gettext("Reinstall package %s"), $pkg['name']) .
 			    '" href="pkg_mgr_install.php?mode=reinstallpkg&amp;pkg=' . $pkg['name'] . '" class="fa fa-retweet"></a>';
 		}
@@ -260,7 +256,7 @@ display_top_tabs($tab_array);
 		<p>
 		<span class="text-warning"><?=gettext("Newer version available")?></span>
 		</p>
-		<span class="text-danger"><?=gettext("Package is configured but not (fully) installed")?></span>
+		<span class="text-danger"><?=gettext("Package is configured but not (fully) installed or deprecated")?></span>
 	</div>
 </div>
 
@@ -269,7 +265,7 @@ display_top_tabs($tab_array);
 
 events.push(function() {
 
-	// Retrieve the table formatted pacakge information and display it in the "Packages" panel
+	// Retrieve the table formatted package information and display it in the "Packages" panel
 	// (Or display an appropriate error message)
 	var ajaxRequest;
 

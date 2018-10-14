@@ -3,7 +3,7 @@
  * pkg_edit.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -124,10 +124,15 @@ if ($config['installedpackages'] && !is_array($config['installedpackages'][xml_s
 	$config['installedpackages'][xml_safe_fieldname($pkg['name'])]['config'] = array();
 }
 
-// If the first entry in the array is an empty <config/> tag, kill it.
+/* If the first entry in the array is an empty <config/> tag, kill it.
+ * See the following tickets for more:
+ *  https://redmine.pfsense.org/issues/7624
+ *  https://redmine.pfsense.org/issues/476
+ */
 if ($config['installedpackages'] &&
     (count($config['installedpackages'][xml_safe_fieldname($pkg['name'])]['config']) > 0) &&
-    ($config['installedpackages'][xml_safe_fieldname($pkg['name'])]['config'][0] == "")) {
+    (empty($config['installedpackages'][xml_safe_fieldname($pkg['name'])]['config'][0])) &&
+    is_array($config['installedpackages'][xml_safe_fieldname($pkg['name'])]['config'])) {
 	array_shift($config['installedpackages'][xml_safe_fieldname($pkg['name'])]['config']);
 }
 
@@ -233,7 +238,12 @@ if ($_POST) {
 					}
 			}
 
-			if (isset($id) && $a_pkg[$id]) {
+			/* If the user supplied an ID and it eixsts, or if id=0
+			 * and the settings are invalid, overwrite.
+			 * See https://redmine.pfsense.org/issues/7624
+			 */
+			if (isset($id) && ($a_pkg[$id] ||
+			   (($id == 0) && !is_array($a_pkg[$id])) )) {
 				$a_pkg[$id] = $pkgarr;
 			} else {
 				$a_pkg[] = $pkgarr;
@@ -567,10 +577,6 @@ if ($pkg['tabs'] != "") {
 			$active = false;
 		}
 
-		if (isset($tab['no_drop_down'])) {
-			$no_drop_down = true;
-		}
-
 		$urltmp = "";
 		if ($tab['url'] != "") {
 			$urltmp = $tab['url'];
@@ -609,7 +615,7 @@ if ($pkg['custom_php_after_head_command']) {
 }
 if (isset($tab_array)) {
 	foreach ($tab_array as $tabid => $tab) {
-		display_top_tabs($tab); //, $no_drop_down, $tabid);
+		display_top_tabs($tab);
 	}
 }
 

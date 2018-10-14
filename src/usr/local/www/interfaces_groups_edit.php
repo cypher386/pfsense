@@ -3,7 +3,7 @@
  * interfaces_groups_edit.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -265,7 +265,7 @@ $section->addInput(new Form_Select(
 ))->setWidth(6)->setHelp('NOTE: Rules for WAN type '.
 	'interfaces in groups do not contain the reply-to mechanism upon which '.
 	'Multi-WAN typically relies. '.
-	'<a href="https://doc.pfsense.org/index.php/ifgroups">More Information</a>');
+	'<a href="https://doc.pfsense.org/index.php/Interface_Groups">More Information</a>');
 
 if (isset($id) && $a_ifgroups[$id]) {
 	$form->addGlobal(new Form_Input(

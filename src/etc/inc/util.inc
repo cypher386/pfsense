@@ -3,7 +3,7 @@
  * util.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally part of m0n0wall (http://m0n0.ch/wall)
@@ -134,13 +134,6 @@ function clear_subsystem_dirty($subsystem = "") {
 	global $g;
 
 	@unlink("{$g['varrun_path']}/{$subsystem}.dirty");
-}
-
-function config_lock() {
-	return;
-}
-function config_unlock() {
-	return;
 }
 
 /* lock configuration file */
@@ -1453,7 +1446,7 @@ function get_configured_interface_list_by_realif($only_opt = false, $withdisable
 
 /* return the configured interfaces list with their description. */
 function get_configured_interface_with_descr($only_opt = false, $withdisabled = false) {
-	global $config;
+	global $config, $user_settings;
 
 	$iflist = array();
 
@@ -1469,6 +1462,10 @@ function get_configured_interface_with_descr($only_opt = false, $withdisabled = 
 				$iflist[$if] = strtoupper($ifdetail['descr']);
 			}
 		}
+	}
+
+	if ($user_settings['webgui']['interfacessort']) {
+		asort($iflist);
 	}
 
 	return $iflist;
@@ -2207,7 +2204,7 @@ function is_interface_mismatch() {
 	$missing_interfaces = array();
 	if (is_array($config['interfaces'])) {
 		foreach ($config['interfaces'] as $ifname => $ifcfg) {
-			if (preg_match("/^enc|^cua|^tun|^tap|^l2tp|^pptp|^ppp|^ovpn|^gif|^gre|^lagg|^bridge|vlan|_wlan/i", $ifcfg['if'])) {
+			if (preg_match("/^enc|^cua|^tun|^tap|^l2tp|^pptp|^ppp|^ovpn|^gif|^gre|^lagg|^bridge|vlan|_wlan|_\d{0,4}_\d{0,4}$/i", $ifcfg['if'])) {
 				// Do not check these interfaces.
 				$i++;
 				continue;

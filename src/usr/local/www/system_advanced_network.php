@@ -3,7 +3,7 @@
  * system_advanced_network.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2008 Shrew Soft Inc
  * All rights reserved.
  *
@@ -78,6 +78,7 @@ $pconfig['sharednet'] = $config['system']['sharednet'];
 $pconfig['disablechecksumoffloading'] = isset($config['system']['disablechecksumoffloading']);
 $pconfig['disablesegmentationoffloading'] = isset($config['system']['disablesegmentationoffloading']);
 $pconfig['disablelargereceiveoffloading'] = isset($config['system']['disablelargereceiveoffloading']);
+$pconfig['ip_change_kill_states'] = $config['system']['ip_change_kill_states'];
 
 if ($_POST) {
 
@@ -86,6 +87,15 @@ if ($_POST) {
 
 	if ($_POST['ipv6nat_enable'] && !is_ipaddr($_POST['ipv6nat_ipaddr'])) {
 		$input_errors[] = gettext("An IP address to NAT IPv6 packets must be specified.");
+	}
+
+	if ($_POST['ipv6allow'] == "yes" && is_bogonsv6_used(true) &&
+	    (!isset($config['system']['maximumtableentries']) ||
+	     $config['system']['maximumtableentries'] <
+	     $g['minimumtableentries_bogonsv6'])) {
+		$input_errors[] = sprintf(gettext(
+		    "In order enable IPv6 and block bogon networks the Firewall Maximum Table Entries value in System / Advanced / Firewall must be increased at least to %s."),
+		    $g['minimumtableentries_bogonsv6']);
 	}
 
 	ob_flush();
@@ -148,6 +158,12 @@ if ($_POST) {
 			$config['system']['disablelargereceiveoffloading'] = true;
 		} else {
 			unset($config['system']['disablelargereceiveoffloading']);
+		}
+
+		if ($_POST['ip_change_kill_states'] == "yes") {
+			$config['system']['ip_change_kill_states'] = true;
+		} else {
+			unset($config['system']['ip_change_kill_states']);
 		}
 
 		setup_microcode();
@@ -285,6 +301,14 @@ $section->addInput(new Form_Checkbox(
 	isset($pconfig['sharednet'])
 ))->setHelp('This option will suppress ARP log messages when multiple interfaces '.
 	'reside on the same broadcast domain.');
+
+$section->addInput(new Form_Checkbox(
+	'ip_change_kill_states',
+	'Reset All States',
+	'Reset all states if WAN IP Address changes',
+	isset($pconfig['ip_change_kill_states'])
+))->setHelp('This option resets all states when a WAN IP Address changes instead of only '.
+    'states associated with the previous IP Address.');
 
 if (get_freebsd_version() == 8) {
 	$section->addInput(new Form_Checkbox(

@@ -3,7 +3,7 @@
  * diag_backup.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -366,17 +366,8 @@ if ($_POST) {
 									if (is_array($ifdescrs)) {
 										foreach ($ifdescrs as $iface) {
 											if (is_alias($config['interfaces'][$iface]['descr'])) {
-												// Firewall rules
 												$origname = $config['interfaces'][$iface]['descr'];
-												$newname = $config['interfaces'][$iface]['descr'] . "Alias";
-												update_alias_names_upon_change(array('filter', 'rule'), array('source', 'address'), $newname, $origname);
-												update_alias_names_upon_change(array('filter', 'rule'), array('destination', 'address'), $newname, $origname);
-												// NAT Rules
-												update_alias_names_upon_change(array('nat', 'rule'), array('source', 'address'), $newname, $origname);
-												update_alias_names_upon_change(array('nat', 'rule'), array('destination', 'address'), $newname, $origname);
-												update_alias_names_upon_change(array('nat', 'rule'), array('target'), $newname, $origname);
-												// Alias in an alias
-												update_alias_names_upon_change(array('aliases', 'alias'), array('address'), $newname, $origname);
+												update_alias_name($origname . "Alias", $origname);
 											}
 										}
 									}

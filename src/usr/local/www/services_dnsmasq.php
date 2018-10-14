@@ -3,7 +3,7 @@
  * services_dnsmasq.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2003-2004 Bob Zoller <bob@kludgebox.com>
  * All rights reserved.
  *
@@ -219,6 +219,11 @@ if ($_POST) {
 
 if ($_GET['act'] == "del") {
 	if ($_GET['type'] == 'host') {
+		// sort it by index so it deletes the correct one.
+		usort($a_hosts, function($a,$b){
+			return($a['idx'] > $b['idx']);
+		});
+
 		if ($a_hosts[$_GET['id']]) {
 			unset($a_hosts[$_GET['id']]);
 			write_config();
@@ -227,6 +232,11 @@ if ($_GET['act'] == "del") {
 			exit;
 		}
 	} elseif ($_GET['type'] == 'doverride') {
+		// sort by index to delete the correct one.
+		usort($a_domainOverrides, function($a,$b){
+			return($a['idx'] > $b['idx']);
+		});
+		
 		if ($a_domainOverrides[$_GET['id']]) {
 			unset($a_domainOverrides[$_GET['id']]);
 			write_config();

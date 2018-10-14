@@ -3,7 +3,7 @@
  * shortcuts.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -294,6 +294,11 @@ $shortcuts['carp']['status'] = "status_carp.php";
 $shortcuts['snmp'] = array();
 $shortcuts['snmp']['main'] = "services_snmp.php";
 $shortcuts['snmp']['service'] = "bsnmpd";
+
+$shortcuts['syslogd'] = array();
+$shortcuts['syslogd']['main'] = "status_logs_settings.php";
+$shortcuts['syslogd']['log'] = "status_logs.php";
+$shortcuts['syslogd']['service'] = "syslogd";
 
 $shortcuts['authentication'] = array();
 $shortcuts['authentication']['main'] = "system_authservers.php";

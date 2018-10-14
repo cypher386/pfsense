@@ -3,7 +3,7 @@
  * ntp_status.widget.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -229,14 +229,21 @@ if ($_REQUEST['updateme']) {
 
 <script type="text/javascript">
 //<![CDATA[
-var d = new Date('<?=date_format(date_create(), 'c')?>');
-var tz = '<?=date('T');?>';
+// Have to convet the date to UTC time to match the PHP clock not the local client clock.
+function convertDateToUTC(date,offset) {
+	var hours_offset = offset/3600;
+	var minute_offset = (offset % 3600)/60;
+	var d = new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), date.getUTCHours() + hours_offset, date.getUTCMinutes() + minute_offset, date.getUTCSeconds())
+	return d;
+}
 
+var ntp_d = convertDateToUTC(new Date('<?=date_format(date_create(), 'c')?>'), '<?=date('Z')?>');
+var tz = '<?=date('T');?>';
 setInterval(function() {
-	d.setSeconds(d.getSeconds() + 1);
-	var thisSecond = d.getSeconds();
-	var thisMinute = d.getMinutes();
-	var thisHour = d.getHours();
+	ntp_d.setSeconds(ntp_d.getSeconds() + 1);
+	var thisSecond = ntp_d.getSeconds();
+	var thisMinute = ntp_d.getMinutes();
+	var thisHour = ntp_d.getHours();
 
 	// Add leading zeros to minutes and seconds as required
 	thisMinute = thisMinute < 10 ? "0" + thisMinute : thisMinute;
@@ -259,30 +266,34 @@ setInterval(function() {
 
 <script type="text/javascript">
 //<![CDATA[
-	function ntp_getstatus() {
-		var url = "/widgets/widgets/ntp_status.widget.php";
-		var pars = 'updateme=yes';
-		$.ajax(
-			url,
-			{
-				type: 'get',
-				data: pars,
-				complete: ntpstatuscallback
-			});
+events.push(function(){
+	// --------------------- Centralized widget refresh system ------------------------------
+
+	// Callback function called by refresh system when data is retrieved
+	function ntp_callback(s) {
+		$('[id="ntpstatus"]').prop('innerHTML', s);
 	}
 
-	function ntpstatuscallback(transport) {
-		// The server returns formatted html code
-		var responseStringNtp = transport.responseText
-		$('#ntpstatus').prop('innerHTML',responseStringNtp);
+	// POST data to send via AJAX
+	var postdata = {
+		ajax: "ajax",
+	 	updateme : "yes"
+	 };
 
-		// Refresh the status at the configured interval
-		setTimeout('ntp_getstatus()', "<?=$widgetperiod?>");
-	}
+	// Create an object defining the widget refresh AJAX call
+	var ntpObject = new Object();
+	ntpObject.name = "NTP";
+	ntpObject.url = "/widgets/widgets/ntp_status.widget.php";
+	ntpObject.callback = ntp_callback;
+	ntpObject.parms = postdata;
+	ntpObject.freq = 4;
 
-	// Start polling for updates some small random number of seconds from now (so that all the widgets don't
-	// hit the server at exactly the same time)
-	setTimeout(ntp_getstatus, Math.floor((Math.random() * 10000) + 1000));
+	// Register the AJAX object
+	register_ajax(ntpObject);
+
+	// ---------------------------------------------------------------------------------------------------
+});
+
 
 //]]>
 </script>

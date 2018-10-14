@@ -8,14 +8,14 @@ pfSense software includes a web interface for the configuration of all included 
 
 pfSense started in 2004 as a fork of the [m0n0wall](http://m0n0.ch/wall/index.php "m0n0wall project homepage") Project (which ended 2015/02/15), though has diverged significantly since.
 
-pfSense is Copyright 2004-2016 [Rubicon Communications, LLC (Netgate)](https://pfsense.org/license "License Information") and published under an open source license.
+pfSense is Copyright 2004-2018 [Rubicon Communications, LLC (Netgate)](https://pfsense.org/license "License Information") and published under an open source license.
 Read more at [https://pfsense.org/](https://pfsense.org/ "The pfSense homepage") and support the team by buying a Gold Membership Subscription, bundled hardware appliances or commercial support.
 
 ## Contribute
 
 The pfSense project welcomes contributions, big or small. Members of the pfSense community frequently contribute bug fixes, enhancements, and documentation changes to improve the functionality and usability of the software.
 
-All of the pfSense project source code is on Github. We recommend potential contributors familiarize themselves with [the pfSense project git repositories](https://github.com/pfsense) and Github in general
+All of the pfSense project source code is on Github. We recommend potential contributors familiarize themselves with [the pfSense project git repositories](https://github.com/pfsense) and [Github in general](https://help.github.com).
 
 For legal reasons, we require those seeking to contribute source code changes to [review and sign the license agreement (LA) and either the Individual or Corporate CLA](https://doc.pfsense.org/index.php/Contributor_License_Agreement_for_Developers).
 

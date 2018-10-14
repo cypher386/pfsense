@@ -3,7 +3,7 @@
 # beep.sh
 #
 # part of pfSense (https://www.pfsense.org)
-# Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+# Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -53,6 +53,9 @@
 BEEP=$(/usr/local/sbin/read_xml_tag.sh boolean system/disablebeep)
 if [ "$BEEP" = "true" ]; then
 	exit;
+fi
+if [ ! -f /usr/local/bin/beep ]; then
+	exit
 fi
 
 # Standard note length

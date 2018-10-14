@@ -3,7 +3,7 @@
  * firewall_nat.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -91,6 +91,11 @@ if (array_key_exists('order-store', $_POST)) {
 
 		if ($_POST['separator']) {
 			$idx = 0;
+
+			if (!is_array($config['nat']['separator'])) {
+				$config['nat']['separator'] = array();
+			}
+
 			foreach ($_POST['separator'] as $separator) {
 				$config['nat']['separator']['sep' . $idx++] = $separator;
 			}

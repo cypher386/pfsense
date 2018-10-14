@@ -3,7 +3,7 @@
  * pfsense-utils.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -181,12 +181,14 @@ function get_css_files() {
 		$usrcss = $pfscss = $betacss = array();
 
 		foreach ($cssfiles as $css) {
-			if (strpos($css, "BETA") != 0) {
-				array_push($betacss, $css);
-			} else if (strpos($css, "pfSense") != 0) {
-				array_push($pfscss, $css);
-			} else {
-				array_push($usrcss, $css);
+			if (strpos($css, "login") == 0) {	// Don't display any login page related CSS files
+				if (strpos($css, "BETA") != 0) {
+					array_push($betacss, $css);
+				} else if (strpos($css, "pfSense") != 0) {
+					array_push($pfscss, $css);
+				} else {
+					array_push($usrcss, $css);
+				}
 			}
 		}
 
@@ -243,6 +245,12 @@ function gen_webguifixedmenu_field(&$section, $value) {
 		["" => gettext("Scrolls with page"), "fixed" => gettext("Fixed (Remains visible at top of page)")]
 	))->setHelp("The fixed option is intended for large screens only.");
 }
+function validate_webguifixedmenu_field(&$input_errors, $value) {
+	$valid_values = array("", "fixed");
+	if (!in_array($value, $valid_values)) {
+		$input_errors[] = gettext("The submitted Top Navigation value is invalid.");
+	}
+}
 
 /****f* pfsense-utils/gen_webguihostnamemenu_field
  * NAME
@@ -262,6 +270,12 @@ function gen_webguihostnamemenu_field(&$section, $value) {
 		["" => gettext("Default (No hostname)"), "hostonly" => gettext("Hostname only"), "fqdn" => gettext("Fully Qualified Domain Name")]
 	))->setHelp("Replaces the Help menu title in the Navbar with the system hostname or FQDN.");
 }
+function validate_webguihostnamemenu_field(&$input_errors, $value) {
+	$valid_values = array("", "hostonly", "fqdn");
+	if (!in_array($value, $valid_values)) {
+		$input_errors[] = gettext("The submitted Hostname in Menu value is invalid.");
+	}
+}
 
 /****f* pfsense-utils/gen_dashboardcolumns_field
  * NAME
@@ -274,7 +288,7 @@ function gen_webguihostnamemenu_field(&$section, $value) {
  ******/
 function gen_dashboardcolumns_field(&$section, $value) {
 
-	if (($value < 1) || ($value > 4)) {
+	if (((int) $value < 1) || ((int) $value > 4)) {
 		$value = 2;
 	}
 
@@ -285,6 +299,30 @@ function gen_dashboardcolumns_field(&$section, $value) {
 		$value,
 		[min => 1, max => 4]
 	));
+}
+function validate_dashboardcolumns_field(&$input_errors, $value) {
+	if (!is_numericint($value) || ((int) $value < 1) || ((int) $value > 6)) {
+		$input_errors[] = gettext("The submitted Dashboard Columns value is invalid.");
+	}
+}
+
+/****f* pfsense-utils/gen_interfacessort_field
+ * NAME
+ *   gen_interfacessort_field
+ * INPUTS
+ *   Pointer to section object
+ *   Initial value for the field
+ * RESULT
+ *   no return value, section object is updated
+ ******/
+function gen_interfacessort_field(&$section, $value) {
+
+	$section->addInput(new Form_Checkbox(
+		'interfacessort',
+		'Interfaces Sort',
+		'Sort Alphabetically',
+		$value
+	))->setHelp('If selected, lists of interfaces will be sorted by description, otherwise they are listed wan,lan,optn...');
 }
 
 /****f* pfsense-utils/gen_associatedpanels_fields
@@ -388,6 +426,7 @@ function gen_user_settings_fields(&$section, $pconfig) {
 	gen_webguifixedmenu_field($section, $pconfig['webguifixedmenu']);
 	gen_webguihostnamemenu_field($section, $pconfig['webguihostnamemenu']);
 	gen_dashboardcolumns_field($section, $pconfig['dashboardcolumns']);
+	gen_interfacessort_field($section, $pconfig['interfacessort']);
 	gen_associatedpanels_fields(
 		$section,
 		$pconfig['dashboardavailablewidgetspanel'],
@@ -416,6 +455,47 @@ function gen_requirestatefilter_field(&$section, $value) {
 	))->setHelp('By default, the entire state table is displayed when entering '.
 		'Diagnostics > States. This option requires a filter to be entered '.
 		'before the states are displayed. Useful for systems with large state tables.');
+}
+
+/****f* pfsense-utils/gen_created_updated_fields
+ * NAME
+ *   gen_created_updated_fields
+ * INPUTS
+ *   Pointer to form object
+ *   Array of created time and username
+ *   Array of updated time and username
+ * RESULT
+ *   no return value, section object is added to form if needed
+ ******/
+function gen_created_updated_fields(&$form, $created, $updated) {
+	$has_created_time = (isset($created['time']) && isset($created['username']));
+	$has_updated_time = (isset($updated['time']) && isset($updated['username']));
+
+	if ($has_created_time || $has_updated_time) {
+		$section = new Form_Section('Rule Information');
+
+		if ($has_created_time) {
+			$section->addInput(new Form_StaticText(
+				'Created',
+				sprintf(
+					gettext('%1$s by %2$s'),
+					date(gettext("n/j/y H:i:s"), $created['time']),
+					$created['username'])
+			));
+		}
+
+		if ($has_updated_time) {
+			$section->addInput(new Form_StaticText(
+				'Updated',
+				sprintf(
+					gettext('%1$s by %2$s'),
+					date(gettext("n/j/y H:i:s"), $updated['time']),
+					$updated['username'])
+			));
+		}
+
+		$form->add($section);
+	}
 }
 
 function hardware_offloading_applyflags($iface) {
@@ -699,7 +779,7 @@ function get_carp_interface_status($carpid) {
 
 	$vhid = $vip['vhid'];
 	$carp_query = '';
-	$_gb = exec("/sbin/ifconfig $interface | /usr/bin/grep carp: | /usr/bin/grep \"vhid $vhid\"", $carp_query);
+	$_gb = exec("/sbin/ifconfig {$interface} | /usr/bin/grep \"carp:.* vhid {$vhid} \"", $carp_query);
 	foreach ($carp_query as $int) {
 		if (stripos($int, "MASTER"))
 			return "MASTER";
@@ -1933,8 +2013,8 @@ function download_file($url, $destination, $verify_ssl = true, $connect_timeout 
 	curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
 	curl_setopt($ch, CURLOPT_HEADER, false);
 	curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-	if (!isset($config['system']['do_not_send_host_uuid'])) {
-		curl_setopt($ch, CURLOPT_USERAGENT, $g['product_name'] . '/' . $g['product_version'] . ' : ' . get_single_sysctl('kern.hostuuid'));
+	if (!isset($config['system']['do_not_send_uniqueid'])) {
+		curl_setopt($ch, CURLOPT_USERAGENT, $g['product_name'] . '/' . $g['product_version'] . ':' . system_get_uniqueid());
 	} else {
 		curl_setopt($ch, CURLOPT_USERAGENT, $g['product_name'] . '/' . $g['product_version']);
 	}
@@ -1988,8 +2068,8 @@ function download_file_with_progress_bar($url, $destination, $verify_ssl = true,
 	curl_setopt($ch, CURLOPT_NOPROGRESS, '1');
 	curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $connect_timeout);
 	curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
-	if (!isset($config['system']['do_not_send_host_uuid'])) {
-		curl_setopt($ch, CURLOPT_USERAGENT, $g['product_name'] . '/' . $g['product_version'] . ' : ' . get_single_sysctl('kern.hostuuid'));
+	if (!isset($config['system']['do_not_send_uniqueid'])) {
+		curl_setopt($ch, CURLOPT_USERAGENT, $g['product_name'] . '/' . $g['product_version'] . ':' . system_get_uniqueid());
 	} else {
 		curl_setopt($ch, CURLOPT_USERAGENT, $g['product_name'] . '/' . $g['product_version']);
 	}
@@ -2144,6 +2224,37 @@ if (!function_exists("split")) {
 		log_error("deprecated split() call with separator '{$separator}'");
 		return preg_split($separator, $haystack, $limit);
 	}
+}
+
+function update_alias_name($new_alias_name, $orig_alias_name) {
+	if (!$orig_alias_name) {
+		return;
+	}
+
+	// Firewall rules
+	update_alias_names_upon_change(array('filter', 'rule'), array('source', 'address'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('filter', 'rule'), array('destination', 'address'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('filter', 'rule'), array('source', 'port'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('filter', 'rule'), array('destination', 'port'), $new_alias_name, $orig_alias_name);
+	// NAT Rules
+	update_alias_names_upon_change(array('nat', 'rule'), array('source', 'address'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'rule'), array('source', 'port'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'rule'), array('destination', 'address'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'rule'), array('destination', 'port'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'rule'), array('target'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'rule'), array('local-port'), $new_alias_name, $orig_alias_name);
+	// NAT 1:1 Rules
+	//update_alias_names_upon_change(array('nat', 'onetoone'), array('external'), $new_alias_name, $orig_alias_name);
+	//update_alias_names_upon_change(array('nat', 'onetoone'), array('source', 'address'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'onetoone'), array('destination', 'address'), $new_alias_name, $orig_alias_name);
+	// NAT Outbound Rules
+	update_alias_names_upon_change(array('nat', 'outbound', 'rule'), array('source', 'network'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'outbound', 'rule'), array('sourceport'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'outbound', 'rule'), array('destination', 'address'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'outbound', 'rule'), array('dstport'), $new_alias_name, $orig_alias_name);
+	update_alias_names_upon_change(array('nat', 'outbound', 'rule'), array('target'), $new_alias_name, $orig_alias_name);
+	// Alias in an alias
+	update_alias_names_upon_change(array('aliases', 'alias'), array('address'), $new_alias_name, $orig_alias_name);
 }
 
 function update_alias_names_upon_change($section, $field, $new_alias_name, $origname) {

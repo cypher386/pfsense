@@ -3,7 +3,7 @@
 # openvpn.attributes.sh
 #
 # part of pfSense (https://www.pfsense.org)
-# Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+# Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -50,7 +50,6 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-echo $script_type > /tmp/script
 if [ "$script_type" = "client-connect" ]; then
 	if [ -f /tmp/$common_name ]; then
 		/bin/cat /tmp/$common_name > $1

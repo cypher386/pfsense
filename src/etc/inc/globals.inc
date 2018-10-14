@@ -3,7 +3,7 @@
  * globals.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -82,6 +82,7 @@ $g = array(
 	"varlog_path" => "/var/log",
 	"etc_path" => "/etc",
 	"tmp_path" => "/tmp",
+	"tmp_path_user_code" => "/tmp/user_code",
 	"conf_path" => "/conf",
 	"conf_default_path" => "/conf.default",
 	"cf_path" => "/cf",
@@ -117,7 +118,8 @@ $g = array(
 	"help_base_url" => "/help.php",
 	"pkg_prefix" => "pfSense-pkg-",
 	"default_timezone" => "Etc/UTC",
-	"language" => "en_US"
+	"language" => "en_US",
+	"minimumtableentries_bogonsv6" => 400000
 );
 
 /* IP TOS flags */
@@ -146,11 +148,11 @@ if (file_exists("/etc/platform")) {
 	} else {
 		$g['default_config_backup_count'] = 30;
 	}
-} else { 
-	// shouldn't happen but "just in case" no platform were detected 
-	$g['platform'] = 'undetected'; 
-	$g['default_config_backup_count'] = 30; 
-} 
+} else {
+	// shouldn't happen but "just in case" no platform were detected
+	$g['platform'] = 'undetected';
+	$g['default_config_backup_count'] = 30;
+}
 
 
 if (file_exists("{$g['etc_path']}/default-config-flavor")) {
@@ -216,6 +218,10 @@ if (file_exists("/etc/inc/globals_override.inc")) {
 
 /* Read all XML files in following dir and load menu entries */
 $g["ext_menu_path"] = "/usr/local/share/{$g['product_name']}/menu";
+
+/* Cache file used to store pfSense version */
+$g["version_cache_file"] = "{$g['varrun_path']}/{$g['product_name']}_version";
+$g['version_cache_refresh'] = 2 * 60 * 60; /* 2h */
 
 function platform_booting($on_console = false) {
 	global $g;

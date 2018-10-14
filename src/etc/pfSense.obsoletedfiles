@@ -682,7 +682,6 @@
 /usr/local/share/dict
 /usr/local/share/doc
 /usr/local/share/emacs
-/usr/local/share/examples
 /usr/local/share/java
 /usr/local/share/locale/af
 /usr/local/share/locale/am
@@ -744,6 +743,8 @@
 /usr/local/share/misc
 /usr/local/share/nls
 /usr/local/share/pbi-keys
+/usr/local/share/pfSense/keys/pkg/revoked/.empty
+/usr/local/share/pfSense/keys/pkg/trusted/.empty
 /usr/local/share/pfSense/pfSense-repo-devel.conf
 /usr/local/share/protocols
 /usr/local/share/sgml
@@ -755,6 +756,7 @@
 /usr/local/www/classes/maintable.inc
 /usr/local/www/code-syntax-highlighter
 /usr/local/www/copyright-master.txt
+/usr/local/www/copynotice.old
 /usr/local/www/csrf/csrf-secret.php
 /usr/local/www/css/table.css
 /usr/local/www/datetimepicker.js
@@ -933,6 +935,7 @@
 /usr/local/www/vpn_pppoe_edit.php
 /usr/local/www/vpn_pppoe_users.php
 /usr/local/www/vpn_pppoe_users_edit.php
+/usr/local/www/widgets/include/thermal_sensors.inc
 /usr/local/www/widgets/widgets/deactivated
 /usr/local/www/wizards/traffic_shaper_wizard.inc
 /usr/local/www/wizards/traffic_shaper_wizard.xml

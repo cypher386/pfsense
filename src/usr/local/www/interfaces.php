@@ -3,7 +3,7 @@
  * interfaces.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2006 Daniel S. Haischt
  * All rights reserved.
  *
@@ -121,6 +121,7 @@ if (!is_array($config['gateways']['gateway_item'])) {
 
 $a_gateways = &$config['gateways']['gateway_item'];
 
+$interfaces = get_configured_interface_with_descr();
 $wancfg = &$config['interfaces'][$if];
 $old_wancfg = $wancfg;
 $old_wancfg['realif'] = get_real_interface($if);
@@ -259,6 +260,7 @@ $pconfig['adv_dhcp6_id_assoc_statement_prefix_vltime'] = $wancfg['adv_dhcp6_id_a
 
 $pconfig['adv_dhcp6_prefix_interface_statement_sla_id'] = $wancfg['adv_dhcp6_prefix_interface_statement_sla_id'];
 $pconfig['adv_dhcp6_prefix_interface_statement_sla_len'] = $wancfg['adv_dhcp6_prefix_interface_statement_sla_len'];
+$pconfig['adv_dhcp6_prefix_selected_interface'] = $wancfg['adv_dhcp6_prefix_selected_interface'];
 
 $pconfig['adv_dhcp6_authentication_statement_authname'] = $wancfg['adv_dhcp6_authentication_statement_authname'];
 $pconfig['adv_dhcp6_authentication_statement_protocol'] = $wancfg['adv_dhcp6_authentication_statement_protocol'];
@@ -344,6 +346,7 @@ switch ($wancfg['ipaddrv6']) {
 	default:
 		if (is_ipaddrv6($wancfg['ipaddrv6'])) {
 			$pconfig['type6'] = "staticv6";
+			$pconfig['ipv6usev4iface'] = isset($wancfg['ipv6usev4iface']);
 			$pconfig['ipaddrv6'] = $wancfg['ipaddrv6'];
 			$pconfig['subnetv6'] = $wancfg['subnetv6'];
 			$pconfig['gatewayv6'] = $wancfg['gatewayv6'];
@@ -564,6 +567,16 @@ if ($_POST['apply']) {
 		}
 	}
 
+	if ($_POST['blockbogons'] == "yes" &&
+	    isset($config['system']['ipv6allow']) &&
+	    (!isset($config['system']['maximumtableentries']) ||
+	     $config['system']['maximumtableentries'] <
+	     $g['minimumtableentries_bogonsv6'])) {
+		$input_errors[] = sprintf(gettext(
+		    "In order to block bogon networks the Firewall Maximum Table Entries value in System / Advanced / Firewall must be increased at least to %s."),
+		    $g['minimumtableentries_bogonsv6']);
+	}
+
 	if (isset($config['dhcpd']) && isset($config['dhcpd'][$if]['enable'])) {
 		if (!preg_match("/^staticv4/", $_POST['type'])) {
 			$input_errors[] = gettext("The DHCP Server is active " .
@@ -720,7 +733,7 @@ if ($_POST['apply']) {
 	/* normalize MAC addresses - lowercase and convert Windows-ized hyphenated MACs to colon delimited */
 	$staticroutes = get_staticroutes(true);
 	$_POST['spoofmac'] = strtolower(str_replace("-", ":", $_POST['spoofmac']));
-	if ($_POST['ipaddr']) {
+	if (($_POST['type'] == 'staticv4') && $_POST['ipaddr']) {
 		if (!is_ipaddrv4($_POST['ipaddr'])) {
 			$input_errors[] = gettext("A valid IPv4 address must be specified.");
 		} else {
@@ -752,7 +765,7 @@ if ($_POST['apply']) {
 			}
 		}
 	}
-	if ($_POST['ipaddrv6']) {
+	if (($_POST['type'] == 'staticv6') && $_POST['ipaddrv6']) {
 		$_POST['ipaddrv6'] = addrtolower($_POST['ipaddrv6']);
 
 		if (!is_ipaddrv6($_POST['ipaddrv6'])) {
@@ -792,8 +805,8 @@ if ($_POST['apply']) {
 	if (($_POST['alias-subnet'] && !is_numeric($_POST['alias-subnet']))) {
 		$input_errors[] = gettext("A valid alias subnet bit count must be specified.");
 	}
-	if ($_POST['dhcprejectfrom'] && !is_ipaddrv4($_POST['dhcprejectfrom'])) {
-		$input_errors[] = gettext("A valid alias IP address must be specified to reject DHCP Leases from.");
+	if ($_POST['dhcprejectfrom'] && !validate_ipv4_list($_POST['dhcprejectfrom'])) {
+		$input_errors[] = gettext("An invalid IP address was detected in the 'Reject leases from' field.");
 	}
 	if (($_POST['gateway'] != "none") || ($_POST['gatewayv6'] != "none")) {
 		$match = false;
@@ -1039,6 +1052,7 @@ if ($_POST['apply']) {
 		unset($wancfg['dhcp6-ia-pd-send-hint']);
 		unset($wancfg['dhcp6prefixonly']);
 		unset($wancfg['dhcp6usev4iface']);
+		unset($wancfg['ipv6usev4iface']);
 		unset($wancfg['dhcp6debug']);
 		unset($wancfg['track6-interface']);
 		unset($wancfg['track6-prefix-id']);
@@ -1085,6 +1099,7 @@ if ($_POST['apply']) {
 
 		unset($wancfg['adv_dhcp6_prefix_interface_statement_sla_id']);
 		unset($wancfg['adv_dhcp6_prefix_interface_statement_sla_len']);
+		unset($wancfg['adv_dhcp6_prefix_selected_interface']);
 
 		unset($wancfg['adv_dhcp6_authentication_statement_authname']);
 		unset($wancfg['adv_dhcp6_authentication_statement_protocol']);
@@ -1267,6 +1282,9 @@ if ($_POST['apply']) {
 			case "staticv6":
 				$wancfg['ipaddrv6'] = $_POST['ipaddrv6'];
 				$wancfg['subnetv6'] = $_POST['subnetv6'];
+				if ($_POST['ipv6usev4iface'] == "yes") {
+					$wancfg['ipv6usev4iface'] = true;
+				}
 				if ($_POST['gatewayv6'] != "none") {
 					$wancfg['gatewayv6'] = $_POST['gatewayv6'];
 				}
@@ -1348,7 +1366,9 @@ if ($_POST['apply']) {
 				if (is_numericint($_POST['adv_dhcp6_prefix_interface_statement_sla_len'])) {
 					$wancfg['adv_dhcp6_prefix_interface_statement_sla_len'] = $_POST['adv_dhcp6_prefix_interface_statement_sla_len'];
 				}
-
+				if (!empty($_POST['adv_dhcp6_prefix_selected_interface'])) {
+					$wancfg['adv_dhcp6_prefix_selected_interface'] = $_POST['adv_dhcp6_prefix_selected_interface'];
+				}
 				if (!empty($_POST['adv_dhcp6_authentication_statement_authname'])) {
 					$wancfg['adv_dhcp6_authentication_statement_authname'] = $_POST['adv_dhcp6_authentication_statement_authname'];
 				}
@@ -1879,6 +1899,13 @@ $section->addInput(new Form_IpAddress(
 	'V6'
 ))->addMask('subnetv6', $pconfig['subnetv6'], 128);
 
+$section->addInput(new Form_Checkbox(
+	'ipv6usev4iface',
+	'Use IPv4 connectivity as parent interface',
+	'IPv6 will use the IPv4 connectivity link (PPPoE)',
+	$pconfig['ipv6usev4iface']
+));
+
 $group = new Form_Group('IPv6 Upstream gateway');
 
 $group->add(new Form_Select(
@@ -1998,7 +2025,8 @@ $section->addInput(new Form_Input(
 	'Reject leases from',
 	'text',
 	$pconfig['dhcprejectfrom']
-))->setHelp('To make the DHCP client reject leases from an undesirable DHCP server, place the IP address of the DHCP server here. ' .
+))->setHelp('To have the DHCP client reject offers from specific DHCP servers, enter their IP addresses here ' .
+			'(separate multiple entries with a comma). ' .
 			'This is useful for rejecting leases from cable modems that offer private IP addresses when they lose upstream sync.');
 
 $group = new Form_Group('Protocol timing');
@@ -2359,6 +2387,14 @@ $group->add(new Form_Input(
 ))->sethelp('sla-len');
 
 $section->add($group);
+
+$group = new Form_Group('Select prefix interface');
+$section->addInput(new Form_Select(
+	'adv_dhcp6_prefix_selected_interface',
+	'Prefix Interface',
+	$pconfig['adv_dhcp6_prefix_selected_interface'],
+	$interfaces
+))->setHelp('Select the interface on which to apply the prefix delegation.');
 
 $group = new Form_Group('Authentication statement');
 

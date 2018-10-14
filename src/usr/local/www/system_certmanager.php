@@ -3,7 +3,7 @@
  * system_certmanager.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2008 Shrew Soft Inc
  * All rights reserved.
  *
@@ -329,7 +329,7 @@ if ($_POST) {
 			foreach ($altnames as $idx => $altname) {
 				switch ($altname['type']) {
 					case "DNS":
-						if (!is_hostname($altname['value'], true)) {
+						if (!is_hostname($altname['value'], true) || is_ipaddr($altname['value'])) {
 							array_push($input_errors, "DNS subjectAltName values must be valid hostnames, FQDNs or wildcard domains.");
 						}
 						break;
@@ -426,12 +426,20 @@ if ($_POST) {
 					if (!empty($pconfig['dn_organizationalunit'])) {
 						$dn['organizationalUnitName'] = $pconfig['dn_organizationalunit'];
 					}
+					if (is_ipaddr($pconfig['dn_commonname'])) {
+						$altnames_tmp = array("IP:{$pconfig['dn_commonname']}");
+					} else {
+						$altnames_tmp = array("DNS:{$pconfig['dn_commonname']}");
+					}
 					if (count($altnames)) {
-						$altnames_tmp = "";
 						foreach ($altnames as $altname) {
-							$altnames_tmp[] = "{$altname['type']}:{$altname['value']}";
+							// The CN is added as a SAN automatically, do not add it again.
+							if ($altname['value'] != $pconfig['dn_commonname']) {
+								$altnames_tmp[] = "{$altname['type']}:{$altname['value']}";
+							}
 						}
-
+					}
+					if (!empty($altnames_tmp)) {
 						$dn['subjectAltName'] = implode(",", $altnames_tmp);
 					}
 
@@ -796,6 +804,8 @@ if ($act == "new" || (($_POST['save'] == gettext("Save")) && $input_errors)) {
 		))->addClass('btn-warning');
 
 		$group->addClass('repeatable');
+
+		$group->setHelp('Enter additional identifiers for the certificate in this list. The Common Name field is automatically added to the certificate as an Alternative Name.');
 
 		$section->add($group);
 

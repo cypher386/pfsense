@@ -4,7 +4,7 @@
  *
  * part of pfSense (https://www.pfsense.org)
  * Copyright (c) 2005-2006 Colin Smith (ethethlay@gmail.com)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -109,6 +109,11 @@ function pkg_update($force = false) {
 function pkg_env($extra_env = array()) {
 	global $config, $g;
 
+	$user_agent = $g['product_name'] . '/' . $g['product_version'];
+	if (!isset($config['system']['do_not_send_uniqueid'])) {
+		$user_agent .= ':' . system_get_uniqueid();
+	}
+
 	$pkg_env_vars = array(
 		"LANG" => "C",
 		"HTTP_USER_AGENT" => $user_agent,
@@ -146,11 +151,6 @@ function pkg_call($params, $mute = false, $extra_env = array()) {
 		return false;
 	}
 
-	$user_agent = $g['product_name'] . '/' . $g['product_version'];
-	if (!isset($config['system']['do_not_send_host_uuid'])) {
-		$user_agent .= ' : ' . get_single_sysctl('kern.hostuuid');
-	}
-
 	$descriptorspec = array(
 		1 => array("pipe", "w"), /* stdout */
 		2 => array("pipe", "w")	 /* stderr */
@@ -159,8 +159,8 @@ function pkg_call($params, $mute = false, $extra_env = array()) {
 	conf_mount_rw();
 
 	pkg_debug("pkg_call(): {$params}\n");
-	$process = proc_open("/usr/sbin/pkg {$params}", $descriptorspec, $pipes,
-	    '/', pkg_env($extra_env));
+	$process = proc_open("/usr/local/sbin/pkg-static {$params}",
+	    $descriptorspec, $pipes, '/', pkg_env($extra_env));
 
 	if (!is_resource($process)) {
 		conf_mount_ro();
@@ -231,11 +231,6 @@ function pkg_exec($params, &$stdout, &$stderr, $extra_env = array()) {
 		return -1;
 	}
 
-	$user_agent = $g['product_name'] . '/' . $g['product_version'];
-	if (!isset($config['system']['do_not_send_host_uuid'])) {
-		$user_agent .= ' : ' . get_single_sysctl('kern.hostuuid');
-	}
-
 	$descriptorspec = array(
 		1 => array("pipe", "w"), /* stdout */
 		2 => array("pipe", "w")	 /* stderr */
@@ -244,8 +239,8 @@ function pkg_exec($params, &$stdout, &$stderr, $extra_env = array()) {
 	conf_mount_rw();
 
 	pkg_debug("pkg_exec(): {$params}\n");
-	$process = proc_open("/usr/sbin/pkg {$params}", $descriptorspec, $pipes,
-	    '/', pkg_env($extra_env));
+	$process = proc_open("/usr/local/sbin/pkg-static {$params}",
+	    $descriptorspec, $pipes, '/', pkg_env($extra_env));
 
 	if (!is_resource($process)) {
 		conf_mount_ro();
@@ -372,8 +367,8 @@ function get_package_internal_name($package_data) {
 }
 
 // Get information about packages.
-function get_pkg_info($pkgs = 'all', $remote_repo_usage_disabled = false, $installed_pkgs_only = false) {
-
+function get_pkg_info($pkgs = 'all', $remote_repo_usage_disabled = false,
+    $installed_pkgs_only = false) {
 	global $g, $input_errors;
 
 	$out = $err = $extra_param = '';
@@ -388,7 +383,13 @@ function get_pkg_info($pkgs = 'all', $remote_repo_usage_disabled = false, $insta
 		$pkgs = $g['pkg_prefix'] . '*';
 	}
 
-	
+
+	if ($installed_pkgs_only && !is_pkg_installed($pkgs)) {
+		// Return early if the caller wants just installed packages and there are none.
+		// Saves doing any calls that might access a remote package repo.
+		return array();
+	}
+
 	if (!function_exists('is_subsystem_dirty')) {
 		require_once("util.inc");
 	}
@@ -409,56 +410,88 @@ function get_pkg_info($pkgs = 'all', $remote_repo_usage_disabled = false, $insta
 		$extra_param = "-U ";
 	}
 
-	if (!$installed_pkgs_only) {
-		$rc = pkg_exec("search {$extra_param}-R --raw-format json-compact " . $pkgs, $out, $err);
+	$did_search = false;
+	$search_rc = 0;
+	$info_rc = 0;
+	$search_items = array();
+	$info_items = array();
+
+	/*
+	 * If we want more than just the currently installed packages or
+	 * we want up-to-date remote repo info then do a full pkg search
+	 */
+	if (!$installed_pkgs_only || !$remote_repo_usage_disabled) {
+		$did_search = true;
+		$search_rc = pkg_exec(
+		    "search {$extra_param}-R --raw-format json-compact " .
+		    $pkgs, $search_out, $search_err);
+		if ($search_rc == 0) {
+			$search_items = explode("\n", chop($search_out));
+			array_walk($search_items, function(&$v, &$k) {
+				$v = json_decode($v, true);
+			});
+		}
 	}
-	if (($installed_pkgs_only || ($rc != 0 && $remote_repo_usage_disabled)) && is_package_installed($pkgs)) {
-		/* Fall back on pkg info to return locally installed matching pkgs instead, if 
-		 *
-		 *   (1) only installed pkgs needed, or
-		 *       we tried to check the local catalog copy (implying that we would have accepted incomplete/outdated pkg info)
-		 *       but it didn't have any contents, or for other reasons returned an error. 
-		 *   AND
-		 *   (2) at least some pkgs matching <pattern> are installed
-		 *
-		 * Following an unsuccessful attempt to access a remote repo catalog, the local copy is wiped clear. Thereafter any
-		 * "pkg search" will return an error until online+updated again. If the calling code would have accepted local copy info
-		 * (which could be incomplete/out of date), then it makes sense to fall back on pkg info to at least return the known
-		 * info about installed pkgs (pkg info should still work), instead of failing and returning no info at all. 
-		 * For example, this at least enables offline view + management of installed pkgs in GUI/console.
-		 *
-		 * We skip this step if no matching pkgs are installed, because then pkg info would return a "no matching pkgs"
-		 * RC code, even though this wouldn't be considered an "error" (and $out+$err would be correct empty strings if none match).
-		 * Note that is_package_installed() is a wrapper for pkg info -e <pattern> which is what we need here.
-		*/
-		
-		// ok, 1 or more packages match, so pkg info can be safely called to get the pkg list  
-		$rc = pkg_exec("info -R --raw-format json-compact " . $pkgs, $out, $err);  
+
+	/*
+	 * We always should look for local items to detect packages that
+	 * were removed from remote repo but are already installed locally
+	 *
+	 * Take pkg search return code into consideration to fallback to local
+	 * information when remote repo is not accessible
+	 */
+	if (is_pkg_installed($pkgs) || $search_rc != 0) {
+		$info_rc = pkg_exec("info -R --raw-format json-compact " .
+		    $pkgs, $info_out, $info_err);
+		if ($info_rc == 0) {
+			$info_items = explode("\n", chop($info_out));
+			array_walk($info_items, function(&$v, &$k) {
+				$v = json_decode($v, true);
+			});
+		}
 	}
 
 	if ($lock) {
 		clear_subsystem_dirty('pkg');
 	}
 
-	if ($rc != 0) {
+	if ($search_rc != 0 && $info_rc != 0) {
 		update_status("\n" . gettext(
 		    "ERROR: Error trying to get packages list. Aborting...")
 		    . "\n");
-		update_status($err);
-		$input_errors[] =  gettext("ERROR: Error trying to get packages list. Aborting...") . "\n";
-		$input_errors[] =  $err;
+		update_status($search_err . "\n" . $info_err);
+		$input_errors[] = gettext(
+		    "ERROR: Error trying to get packages list. Aborting...") .
+		    "\n";
+		$input_errors[] = $search_err . "\n" . $info_err;
 		return array();
 	}
 
+	/* It was not possible to search, use local information only */
+	if ($search_rc != 0 || !$did_search) {
+		$search_items = $info_items;
+	} else {
+		foreach ($info_items as $pkg_info) {
+			if (empty($pkg_info['name'])) {
+				continue;
+			}
+
+			if (array_search($pkg_info['name'], array_column(
+			    $search_items, 'name')) === FALSE) {
+				$pkg_info['obsolete'] = true;
+				$search_items[] = $pkg_info;
+			}
+		}
+	}
+
 	$result = array();
-	$pkgs_info = explode("\n", $out);
-	foreach ($pkgs_info as $pkg_info_json) {
-		$pkg_info = json_decode($pkg_info_json, true);
-		if (!isset($pkg_info['name'])) {
+	foreach ($search_items as $pkg_info) {
+		if (empty($pkg_info['name'])) {
 			continue;
 		}
 
-		if (isset($pkg_filter) && !in_array($pkg_info['name'], $pkg_filter)) {
+		if (isset($pkg_filter) && !in_array($pkg_info['name'],
+		    $pkg_filter)) {
 			continue;
 		}
 
@@ -470,29 +503,53 @@ function get_pkg_info($pkgs = 'all', $remote_repo_usage_disabled = false, $insta
 		    "https://github.com/pfsense/FreeBSD-ports/commits/devel/" .
 		    $pkg_info['categories'][0] . '/' . $pkg_info['name'];
 
+		$pkg_is_installed = false;
+
 		if (is_pkg_installed($pkg_info['name'])) {
 			$pkg_info['installed'] = true;
+			$pkg_is_installed = true;
 
-			$rc = pkg_exec("query %v {$pkg_info['name']}", $out, $err);
+			$rc = pkg_exec("query %v {$pkg_info['name']}", $out,
+			    $err);
 
 			if ($rc != 0) {
 				update_status("\n" . gettext(
 				    "ERROR: Error trying to get package version. Aborting...")
 				    . "\n");
 				update_status($err);
-				$input_errors[] =  gettext("ERROR: Error trying to get package version. Aborting...") . "\n";
-				$input_errors[] =  $err;
+				$input_errors[] = gettext(
+				    "ERROR: Error trying to get package version. Aborting...") .
+				    "\n";
+				$input_errors[] = $err;
 				return array();
 			}
 
 			$pkg_info['installed_version'] = str_replace("\n", "", $out);
+
+			/*
+			* We used pkg info to collect pkg data so remote
+			* version is not available. Lets try to collect it
+			* using rquery if possible
+			*/
+			if ($search_rc != 0 || !$did_search) {
+				$rc = pkg_exec("rquery -U %v {$pkg_info['name']}", $out, $err);
+
+				if ($rc == 0) {
+					$pkg_info['version'] = str_replace("\n", "", $out);
+				}
+			}
+
 		} else if (is_package_installed($pkg_info['shortname'])) {
 			$pkg_info['broken'] = true;
+			$pkg_is_installed = true;
 		}
 
-		$pkg_info['desc'] = preg_replace('/\n+WWW:.*$/', '', $pkg_info['desc']);
+		$pkg_info['desc'] = preg_replace('/\n+WWW:.*$/', '',
+		    $pkg_info['desc']);
 
-		$result[] = $pkg_info;
+		if (!$installed_pkgs_only || $pkg_is_installed) {
+			$result[] = $pkg_info;
+		}
 		unset($pkg_info);
 	}
 
@@ -517,12 +574,7 @@ function register_all_installed_packages() {
 
 	$pkg_info = get_pkg_info('all', true, true);
 
-
 	foreach ($pkg_info as $pkg) {
-		if (!isset($pkg['installed'])) {
-			continue;
-		}
-
 		pkg_remove_prefix($pkg['name']);
 
 		if (is_package_installed($pkg['name'])) {
@@ -852,7 +904,7 @@ function install_package_xml($package_name) {
 			update_status(gettext("done.") . "\n");
 		}
  		if (is_array($pkg_config['tabs'])) {
- 			$config['installedpackages']['package'][$pkgid]['tabs'] = $pkg_config['tabs'];			
+ 			$config['installedpackages']['package'][$pkgid]['tabs'] = $pkg_config['tabs'];
  		}
 	} else {
 		pkg_debug("Unable to find config file\n");
@@ -866,17 +918,17 @@ function install_package_xml($package_name) {
 		return false;
 	}
 
-	/* set up package logging streams */
-	if ($pkg_info['logging']) {
-		system_syslogd_start();
-	}
-
 	update_status(gettext("Writing configuration... "));
 	write_config($changedesc);
 	log_error(sprintf(gettext("Successfully installed package: %s."), $pkg_info['name']));
 	update_status(gettext("done.") . "\n");
 	if ($pkg_info['after_install_info']) {
 		update_status($pkg_info['after_install_info']);
+	}
+
+	/* set up package logging streams */
+	if ($pkg_info['logging']) {
+		system_syslogd_start(true);
 	}
 
 	return true;
@@ -996,7 +1048,7 @@ function delete_package_xml($package_name, $when = "post-deinstall") {
 	$need_syslog_restart = false;
 	if (is_array($pkg_info['logging']) && $pkg_info['logging']['logfilename'] <> "") {
 		update_status(gettext("Syslog entries... "));
-		@unlink("{$g['varlog_path']}/{$pkg_info['logging']['logfilename']}");
+		@unlink_if_exists("{$g['varlog_path']}/{$pkg_info['logging']['logfilename']}");
 		update_status("done.\n");
 		$need_syslog_restart = true;
 	}
@@ -1007,12 +1059,11 @@ function delete_package_xml($package_name, $when = "post-deinstall") {
 		unset($config['installedpackages']['package'][$pkgid]);
 		update_status(gettext("done.") . "\n");
 		write_config(sprintf(gettext("Removed %s package."), $package_name));
-	}
-
-	/* remove package entry from /etc/syslog.conf if needed */
-	/* this must be done after removing the entries from config.xml */
-	if ($need_syslog_restart) {
-		system_syslogd_start();
+		/* remove package entry from /etc/syslog.conf if needed */
+		/* this must be done after removing the entries from config.xml */
+		if ($need_syslog_restart) {
+			system_syslogd_start(true);
+		}
 	}
 
 	conf_mount_ro();
@@ -1173,14 +1224,34 @@ function get_base_pkg_name() {
 }
 
 /* Verify if system needs upgrade (meta package or base) */
-function get_system_pkg_version($baseonly = false) {
+function get_system_pkg_version($baseonly = false, $use_cache = true) {
 	global $g;
 
-	$output = exec("/usr/local/sbin/{$g['product_name']}-upgrade -c", $_gc,
-	    $rc);
+	$cache_file = $g['version_cache_file'];
+	$rc_file = $cache_file . '.rc';
+
+	$rc = "";
+	if ($use_cache && file_exists($rc_file) &&
+	    (time()-filemtime($rc_file) < $g['version_cache_refresh'])) {
+		$rc = chop(@file_get_contents($rc_file));
+	}
+
+	if ($rc == "2") {
+		$output = @file_get_contents($cache_file);
+	} else if ($rc != "0") {
+		$output = exec(
+		    "/usr/local/sbin/{$g['product_name']}-upgrade -c", $_gc,
+		    $rc);
+
+		/* Update cache if it succeeded */
+		if ($rc == 0 || $rc == 2) {
+			@file_put_contents($cache_file, $output);
+			@file_put_contents($rc_file, $rc);
+		}
+	}
 
 	/* pfSense-upgrade returns 2 when there is a new version */
-	if ($rc == 2) {
+	if ($rc == "2") {
 		$new_version = explode(' ', $output)[0];
 	}
 
@@ -1191,7 +1262,7 @@ function get_system_pkg_version($baseonly = false) {
 		return false;
 	}
 
-	$info = get_pkg_info($base_pkg, true);
+	$info = get_pkg_info($base_pkg, true, true);
 
 	$pkg_info = array();
 	foreach ($info as $item) {
@@ -1203,7 +1274,7 @@ function get_system_pkg_version($baseonly = false) {
 
 	if (empty($pkg_info) || (!$baseonly && ($pkg_info['version'] ==
 	    $pkg_info['installed_version']))) {
-		$info = get_pkg_info($meta_pkg, true);
+		$info = get_pkg_info($meta_pkg, true, true);
 
 		foreach ($info as $item) {
 			if ($item['name'] == $meta_pkg) {
@@ -1217,10 +1288,15 @@ function get_system_pkg_version($baseonly = false) {
 		return false;
 	}
 
-	return array(
+	$result = array(
 	    'version'           => $new_version ?: $pkg_info['version'],
 	    'installed_version' => $pkg_info['installed_version']
 	);
+
+	$result['pkg_version_compare'] = pkg_version_compare(
+	    $result['installed_version'], $result['version']);
+
+	return $result;
 }
 
 /* List available repos */
@@ -1285,7 +1361,85 @@ function pkg_switch_repo($path) {
 		file_put_contents("/usr/local/etc/pkg.conf", $pkg_conf);
 	}
 
-	return pkg_update(true);
+	/* Update pfSense_version cache */
+	mwexec_bg("/etc/rc.update_pkg_metadata now");
+	return;
 }
 
+$FQDN = "https://ews.netgate.com/pfupdate";
+$refreshinterval = (24 * 3600);	// 24 hours
+$idfile = "/var/db/uniqueid";
+$repopath = "/usr/local/share/{$g['product_name']}/pkg/repos";
+$configflename = "{$repopath}/{$g['product_name']}-repo-custom.conf";
+
+// Update the list of available repositories from the server. This will allow migration to another
+// update repository should the existing one becomes unavailable
+function update_repos() {
+	global $g, $config, $idfile, $FQDN, $repopath;
+
+	if (file_exists($idfile)) {
+		// If the custom repository definition does not exist, or is more than 24 hours old
+		// Fetch a copy from the server
+		if ( (! file_exists($configflename)) || ( time()-filemtime($configflename) > $refreshinterval)) {
+			if (function_exists('curl_version')) {
+				// Gather some information about the system so the proper repo can be returned
+				$nid = file_get_contents($idfile);
+				$serial = system_get_serial();
+				$arch = php_uname(“p”);
+				$version = $g['product_version'];
+				$locale = $config['system']['language'];
+				// Architecture comes from the last word in the uname output
+				$arch = array_pop(explode(' ', php_uname(“p”)));
+
+				$post = ['uid' => $nid,
+						 'language' => $locale,
+						 'serial' => $serial,
+						 'version' => $version,
+						 'arch' => $arch
+						];
+
+				$ch = curl_init();
+				curl_setopt($ch, CURLOPT_HEADER, 0);
+				curl_setopt($ch, CURLOPT_VERBOSE, 0);
+				curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+				curl_setopt($ch, CURLOPT_USERAGENT, $g['product_name'] . '/' . $g['product_version']);
+				curl_setopt($ch, CURLOPT_URL, $FQDN);
+				curl_setopt($ch, CURLOPT_POST, true);
+				curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($post));
+				curl_setopt($ch, CURLOPT_CONNECTTIMEOUT ,4);
+				$response = curl_exec($ch);
+				$status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+				curl_close($ch);
+
+				if ($status == 200) {
+					save_repo($response);
+				}
+			}
+		}
+	}
+}
+
+// Parse the received JSON data and save the custom repository information
+function save_repo($json) {
+	global $repopath, $g;
+	$repo = json_decode($json, true);
+
+	if (($repo != NULL) && isset($repo['abi']) && isset($repo['altabi']) && isset($repo['conf']) &&
+	    isset($repo['descr']) && isset($repo['name']) && (strlen($repo['conf']) > 10)) {
+		$basename = "{$repopath}/{$g['product_name']}-repo-custom.";
+
+		file_put_contents($basename . "conf", base64_decode($repo['conf']));
+		file_put_contents($basename . "descr", $repo['descr']);
+		file_put_contents($basename . "abi", $repo['abi']);
+		file_put_contents($basename . "altabi", $repo['altabi']);
+		file_put_contents($basename . "name", $repo['name']);
+		file_put_contents($basename . "help", $repo['help']);
+	} else {
+		// If there was anything wrong with the custom repository definition, remove the help text
+		// to avoid possible confusion
+		if (file_exists($basename . "help")) {
+			unlink($basename . "help");
+		}
+	}
+}
 ?>

@@ -3,7 +3,7 @@
  * vpn.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2008 Shrew Soft Inc
  * All rights reserved.
  *
@@ -531,12 +531,19 @@ EOD;
 		}
 	}
 
+	/* Activate RADIUS accounting if it was selected on the auth server view */
+	$radius_accounting = "";
+	if($auth_server && isset($auth_server['radius_acct_port'])){
+		$radius_accounting = 'accounting = yes';
+	}
+
 	/* write an eap-radius config section if appropriate */
 	if (strlen($radius_server_txt) && ($mobile_ipsec_auth === "eap-radius")) {
 		$strongswan .= <<<EOD
 		eap-radius {
 			class_group = yes
 			eap_start = no
+			{$radius_accounting}
 			servers {
 {$radius_server_txt}
 			}
@@ -844,7 +851,8 @@ EOD;
 				if (!empty($lanip) && is_ipaddrv4($lanip)) {
 					$lansn = get_interface_subnet("lan");
 					$lansa = gen_subnet($lanip, $lansn);
-					$ipsecconf .= <<<EOD
+					if (!empty($lansa) && !empty($lansn)) {
+						$ipsecconf .= <<<EOD
 
 conn bypasslan
 	leftsubnet = {$lansa}/{$lansn}
@@ -854,6 +862,7 @@ conn bypasslan
 	auto = route
 
 EOD;
+					}
 				}
 			}
 		}
@@ -1143,10 +1152,14 @@ EOD;
 			} else {
 				$reauth = "reauth = yes";
 			}
+
 			if (isset($ph1ent['rekey_enable'])) {
-				$rekey = "rekey = no";
+				$rekeyline = "rekey = no";
 			} else {
-				$rekey = "rekey = yes";
+				$rekeyline = "rekey = yes";
+				if(!empty($ph1ent['margintime'])){
+					$rekeyline .= "\n\tmargintime = {$ph1ent['margintime']}s";
+				}
 			}
 
 			if ($ph1ent['nat_traversal'] == 'off') {
@@ -1345,7 +1358,7 @@ EOD;
 	{$forceencaps}
 	{$mobike}
 	{$tfc}
-	{$rekey}
+	{$rekeyline}
 	installpolicy = yes
 	{$tunneltype}
 	{$dpdline}

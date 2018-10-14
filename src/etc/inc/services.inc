@@ -3,7 +3,7 @@
  * services.inc
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally part of m0n0wall (http://m0n0.ch/wall)
@@ -55,8 +55,8 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-define('DYNDNS_PROVIDER_VALUES', 'all-inkl citynetwork cloudflare cloudflare-v6 custom custom-v6 dnsexit dnsimple dnsmadeeasy dnsomatic duiadns duiadns-v6 dyndns dyndns-custom dyndns-static dyns easydns eurodns freedns freedns-v6 glesys googledomains gratisdns he-net he-net-v6 he-net-tunnelbroker loopia namecheap noip noip-free ods opendns ovh-dynhost route53 selfhost spdyn spdyn-v6 zoneedit');
-define('DYNDNS_PROVIDER_DESCRIPTIONS', 'All-Inkl.com,City Network,CloudFlare,CloudFlare (v6),Custom,Custom (v6),DNSexit,DNSimple,DNS Made Easy,DNS-O-Matic,DuiaDns.net,DuiaDns.net (v6),DynDNS (dynamic),DynDNS (custom),DynDNS (static),DyNS,easyDNS,Euro Dns,freeDNS,freeDNS (v6),GleSYS,Google Domains,GratisDNS,HE.net,HE.net (v6),HE.net Tunnelbroker,Loopia,Namecheap,No-IP,No-IP (free),ODS.org,OpenDNS,OVH DynHOST,Route 53,SelfHost,SPDYN,SPDYN (v6),ZoneEdit');
+define('DYNDNS_PROVIDER_VALUES', 'all-inkl citynetwork cloudflare cloudflare-v6 custom custom-v6 dnsexit dnsimple dnsmadeeasy dnsomatic duiadns duiadns-v6 dyndns dyndns-custom dyndns-static dyns easydns eurodns freedns freedns-v6 glesys googledomains gratisdns he-net he-net-v6 he-net-tunnelbroker hover loopia namecheap noip noip-free ods opendns ovh-dynhost route53 selfhost spdyn spdyn-v6 zoneedit');
+define('DYNDNS_PROVIDER_DESCRIPTIONS', 'All-Inkl.com,City Network,CloudFlare,CloudFlare (v6),Custom,Custom (v6),DNSexit,DNSimple,DNS Made Easy,DNS-O-Matic,DuiaDns.net,DuiaDns.net (v6),DynDNS (dynamic),DynDNS (custom),DynDNS (static),DyNS,easyDNS,Euro Dns,freeDNS,freeDNS (v6),GleSYS,Google Domains,GratisDNS,HE.net,HE.net (v6),HE.net Tunnelbroker,Hover,Loopia,Namecheap,No-IP,No-IP (free),ODS.org,OpenDNS,OVH DynHOST,Route 53,SelfHost,SPDYN,SPDYN (v6),ZoneEdit');
 
 /* implement ipv6 route advertising daemon */
 function services_radvd_configure($blacklist = array()) {
@@ -647,6 +647,7 @@ EOD;
 				$type = "secondary";
 				$my_port = "520";
 				$peer_port = "519";
+				$dhcpdconf_pri = '';
 			} else {
 				$my_port = "519";
 				$peer_port = "520";
@@ -1576,6 +1577,10 @@ EOD;
 					$dhhostname = str_replace(" ", "_", $sm['hostname']);
 					$dhhostname = str_replace(".", "_", $dhhostname);
 					$dhcpdv6conf .= "	option host-name {$dhhostname};\n";
+					if (isset($dhcpv6ifconf['ddnsupdate']) &&
+					    isset($dhcpv6ifconf['ddnsforcehostname'])) {
+						$dhcpdv6conf .= "	ddns-hostname \"{$dhhostname}\";\n";
+					}
 				}
 				if ($sm['filename']) {
 					$dhcpdv6conf .= "	filename \"{$sm['filename']}\";\n";
@@ -2288,12 +2293,21 @@ function services_unbound_configure($restart_dhcp = true) {
 		echo "services_unbound_configure() being called $mt\n";
 	}
 
-	// kill any running Unbound instance
-	if (file_exists("{$g['varrun_path']}/unbound.pid")) {
-		sigkillbypid("{$g['varrun_path']}/unbound.pid", "TERM");
-	}
-
 	if (isset($config['unbound']['enable'])) {
+		require_once('/etc/inc/unbound.inc');
+
+		/* Stop Unbound using TERM */
+		if (file_exists("{$g['varrun_path']}/unbound.pid")) {
+			sigkillbypid("{$g['varrun_path']}/unbound.pid", "TERM");
+		}
+
+		/* If unbound is still running, wait up to 30 seconds for it to terminate. */
+		for ($i=1; $i <= 30; $i++) {
+			if (is_process_running('unbound')) {
+				sleep(1);
+			}
+		}
+
 		if (platform_booting()) {
 			echo gettext("Starting DNS Resolver...");
 		} else {
@@ -2305,13 +2319,35 @@ function services_unbound_configure($restart_dhcp = true) {
 			$return = 1;
 		}
 
-		require_once('/etc/inc/unbound.inc');
+		/* Check here for dhcp6 complete - wait upto 10 seconds */
+		if($config['interfaces']["wan"]['ipaddrv6'] == 'dhcp6') {
+			$wanif = get_real_interface("wan", "inet6");
+			if (platform_booting()) {
+				for ($i=1; $i <= 10; $i++) {
+					if (!file_exists("/tmp/{$wanif}_dhcp6_complete")) { 
+						log_error(gettext("Unbound start waiting on dhcp6c."));
+						sleep(1);
+					} else {
+						unlink_if_exists("/tmp/{$wanif}_dhcp6_complete");
+						log_error(gettext("dhcp6 init complete. Continuing"));
+						break;
+					}						
+				}
+			}
+		}
+		
 		sync_unbound_service();
 		if (platform_booting()) {
+			log_error(gettext("sync unbound done."));
 			echo gettext("done.") . "\n";
 		}
 
 		system_dhcpleases_configure();
+	} else {
+		/* kill Unbound since it should not be enabled */
+		if (file_exists("{$g['varrun_path']}/unbound.pid")) {
+			sigkillbypid("{$g['varrun_path']}/unbound.pid", "KILL");
+		}
 	}
 
 	if (!platform_booting() && $restart_dhcp) {
@@ -2859,8 +2895,10 @@ function install_cron_job($command, $active = false, $minute = "0", $hour = "*",
 		}
 	} else {
 		if ($is_installed == true) {
-			unset($config['cron']['item'][$x]);
+			array_splice($config['cron']['item'], $x, 1);
 			write_config(sprintf(gettext("Removed cron job for %s"), $command));
+		} else {
+			$cron_changed = false;
 		}
 	}
 

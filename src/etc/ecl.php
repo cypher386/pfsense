@@ -2,7 +2,7 @@
 /*
  * ecl.php
  *
- * Copyright (c) 2010-2015 Rubicon Communications, LLC (Netgate). All rights reserved.
+ * Copyright (c) 2010-2018 Rubicon Communications, LLC (Netgate). All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -184,6 +184,11 @@ function find_config_xml() {
 							backup_config();
 							echo "Restoring [{$slice}] {$config_location}...\n";
 							restore_backup($config_location);
+							if (file_exists('/cf/conf/trigger_initial_wizard')) {
+								echo "First boot after install, setting flag for package sync and disabling wizard...\n";
+								touch('/cf/conf/needs_package_sync');
+								@unlink('/cf/conf/trigger_initial_wizard');
+							}
 							echo "Cleaning up...\n";
 							exec("/sbin/umount /tmp/mnt/cf");
 							exit;

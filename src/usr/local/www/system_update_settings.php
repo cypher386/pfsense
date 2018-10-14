@@ -3,7 +3,7 @@
  * system_update_settings.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2005 Colin Smith
  * All rights reserved.
  *
@@ -65,15 +65,6 @@ require_once("pkg-utils.inc");
 $repos = pkg_list_repos();
 
 if ($_POST) {
-
-	// Set the firmware branch, but only if we are not using it already
-	if ($_POST['fwbranch']) {
-		if (($_POST['fwbranch'] == "development") && !is_pkg_installed($g['product_name'] . "-repo-devel")) {
-			pkg_switch_repo(true);
-		} else if (($_POST['fwbranch'] == "stable") && !is_pkg_installed($g['product_name'] . "-repo")) {
-			pkg_switch_repo(false);
-		}
-	}
 
 	if ($_POST['disablecheck'] == "yes") {
 		$config['system']['firmware']['disablecheck'] = true;
@@ -185,17 +176,32 @@ $tab_array[] = array(gettext("System Update"), false, "pkg_mgr_install.php?id=fi
 $tab_array[] = array(gettext("Update Settings"), true, "system_update_settings.php");
 display_top_tabs($tab_array);
 
+// Check to see if any new repositories have become available. This data is cached and
+// refreshed evrey 24 hours
+update_repos();
+$repopath = "/usr/local/share/{$g['product_name']}/pkg/repos";
+$helpfilename = "{$repopath}/{$g['product_name']}-repo-custom.help";
+$repos = pkg_list_repos();
+
 $form = new Form();
 
 $section = new Form_Section('Firmware Branch');
 
-$section->addInput(new Form_Select(
-	fwbranch,
+$field = new Form_Select(
+	'fwbranch',
 	'*Branch',
 	get_repo_name($config['system']['pkg_repo_conf_path']),
 	build_repo_list()
-))->setHelp('Please select the stable, or the development branch from which to update the system firmware. ' . ' <br />' .
-			'Use of the development version is at your own risk!');
+);
+
+if (file_exists($helpfilename)) {
+	$field->setHelp(file_get_contents($helpfilename));
+} else {
+	$field->setHelp('Please select the branch from which to update the system firmware. <br />' .
+					'Use of the development version is at your own risk!');
+}
+
+$section->addInput($field);
 
 $form->add($section);
 
